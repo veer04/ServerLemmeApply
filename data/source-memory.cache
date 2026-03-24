@@ -1,0 +1,623 @@
+{
+  "sources": [
+    {
+      "url": "https://www.amazon.jobs/en/search?base_query=Software+Engineer&country=IND&experience_level=Entry-Level",
+      "successCount": 24,
+      "lastSuccessAt": "2026-03-23T14:00:04.363Z",
+      "tags": [
+        "software",
+        "engineer",
+        "entry-level",
+        "delhi ncr",
+        "developer",
+        "react",
+        "next.js",
+        "express",
+        "node.js",
+        "mongodb",
+        "aws",
+        "web",
+        "development",
+        "intern",
+        "india",
+        "remote",
+        "c++",
+        "java",
+        "python",
+        "data structures",
+        "algorithms",
+        "object-oriented programming",
+        "problem solving",
+        "teamwork",
+        "sql",
+        "skills",
+        "typescript",
+        "dsa",
+        "expected",
+        "package"
+      ]
+    },
+    {
+      "url": "https://www.ycombinator.com/jobs?query=entry%20level%20software%20engineer%20python%20java%20algorithms&min_experience=0&max_experience=1",
+      "successCount": 21,
+      "lastSuccessAt": "2026-03-23T14:00:04.363Z",
+      "tags": [
+        "software",
+        "engineer",
+        "python",
+        "java",
+        "data structures",
+        "algorithms",
+        "object-oriented programming",
+        "sql",
+        "git",
+        "html",
+        "css",
+        "javascript",
+        "flexible",
+        "entry-level",
+        "engineering",
+        "jobs",
+        "developer",
+        "react",
+        "next.js",
+        "express",
+        "node.js",
+        "mongodb",
+        "aws",
+        "web",
+        "development",
+        "intern",
+        "india",
+        "skills",
+        "typescript",
+        "dsa"
+      ]
+    },
+    {
+      "url": "https://remoteok.com/remote-software-engineer-jobs",
+      "successCount": 18,
+      "lastSuccessAt": "2026-03-23T14:00:04.363Z",
+      "tags": [
+        "entry",
+        "level",
+        "india",
+        "entry-level",
+        "engineer",
+        "noida",
+        "software",
+        "delhi",
+        "gurgaon",
+        "programming languages",
+        "data structures & algorithms",
+        "system design",
+        "cloud platforms",
+        "databases",
+        "version control",
+        "not specified",
+        "engineering",
+        "jobs",
+        "developer",
+        "react",
+        "next.js",
+        "express",
+        "node.js",
+        "mongodb",
+        "aws",
+        "web",
+        "development",
+        "intern",
+        "skills",
+        "typescript"
+      ]
+    },
+    {
+      "url": "https://www.linkedin.com/jobs/search/?keywords=Entry-level%20Software%20Engineer&f_exp=0%2C1",
+      "successCount": 15,
+      "lastSuccessAt": "2026-03-23T13:47:57.204Z",
+      "tags": [
+        "software",
+        "engineer",
+        "programming languages",
+        "data structures & algorithms",
+        "system design",
+        "cloud platforms",
+        "databases",
+        "version control",
+        "not specified",
+        "entry-level",
+        "programming fundamentals",
+        "data structures",
+        "algorithms",
+        "object-oriented programming",
+        "database concepts",
+        "version control (git)",
+        "problem solving",
+        "engineering",
+        "jobs",
+        "intern",
+        "remote",
+        "web",
+        "development",
+        "india",
+        "c++",
+        "java",
+        "python",
+        "teamwork",
+        "sql"
+      ]
+    },
+    {
+      "url": "https://www.shine.com/job-search/software-developer-react-nextjs-express-nodejs-mongodb-aws-jobs-in-india",
+      "successCount": 9,
+      "lastSuccessAt": "2026-03-23T14:00:04.363Z",
+      "tags": [
+        "software",
+        "developer",
+        "react",
+        "next.js",
+        "express",
+        "node.js",
+        "mongodb",
+        "aws",
+        "engineer",
+        "india",
+        "remote",
+        "entry-level",
+        "c++",
+        "java",
+        "python",
+        "data structures",
+        "algorithms",
+        "object-oriented programming",
+        "problem solving",
+        "teamwork",
+        "sql",
+        "skills",
+        "typescript",
+        "dsa",
+        "expected",
+        "package"
+      ]
+    },
+    {
+      "url": "https://www.linkedin.com/jobs/search/?keywords=Entry-Level%20Software%20Engineer&f_exp=0%2C1",
+      "successCount": 8,
+      "lastSuccessAt": "2026-03-23T12:58:23.448Z",
+      "tags": [
+        "software",
+        "engineer",
+        "entry-level",
+        "delhi ncr",
+        "india",
+        "remote"
+      ]
+    },
+    {
+      "url": "https://www.ycombinator.com/jobs?query=entry%20level%20software%20engineer&min_experience=0&max_experience=1",
+      "successCount": 8,
+      "lastSuccessAt": "2026-03-23T12:58:23.448Z",
+      "tags": [
+        "software",
+        "engineer",
+        "programming languages",
+        "data structures & algorithms",
+        "system design",
+        "cloud platforms",
+        "databases",
+        "version control",
+        "not specified",
+        "entry-level",
+        "india",
+        "remote"
+      ]
+    },
+    {
+      "url": "https://www.linkedin.com/jobs/search/?keywords=Software%20Engineering%20Intern&f_TPR=r86400&f_WT=2",
+      "successCount": 6,
+      "lastSuccessAt": "2026-03-20T13:46:52.690Z",
+      "tags": [
+        "software",
+        "engineering",
+        "intern",
+        "remote",
+        "entry-level"
+      ]
+    },
+    {
+      "url": "https://www.dice.com/jobs?q=Senior%20Fullstack%20React%20Next.js%20Node.js%20AWS&filters.experienceLevel=Expert",
+      "successCount": 5,
+      "lastSuccessAt": "2026-03-23T14:00:04.363Z",
+      "tags": [
+        "react",
+        "next.js",
+        "express",
+        "node.js",
+        "mongodb",
+        "aws",
+        "skills",
+        "typescript",
+        "dsa",
+        "expected",
+        "package",
+        "india"
+      ]
+    },
+    {
+      "url": "https://www.linkedin.com/jobs/search/?keywords=Senior%20Fullstack%20Developer%20React%20Node.js%20AWS&f_exp=5%2C6",
+      "successCount": 4,
+      "lastSuccessAt": "2026-03-20T10:16:56.289Z",
+      "tags": [
+        "react",
+        "next.js",
+        "express",
+        "node.js",
+        "mongodb",
+        "aws"
+      ]
+    },
+    {
+      "url": "https://www.ycombinator.com/jobs?query=MERN%20Stack%20Developer%20Mid-level&remote=true",
+      "successCount": 3,
+      "lastSuccessAt": "2026-03-18T13:31:05.480Z",
+      "tags": [
+        "express",
+        "mongodb",
+        "node.js"
+      ]
+    },
+    {
+      "url": "https://www.linkedin.com/jobs/search/?keywords=Senior%20Fullstack%20Developer%20React%20Next.js%20Node.js%20AWS&f_exp=5%2C6",
+      "successCount": 3,
+      "lastSuccessAt": "2026-03-20T10:16:56.289Z",
+      "tags": [
+        "react",
+        "next.js",
+        "express",
+        "node.js",
+        "mongodb",
+        "aws"
+      ]
+    },
+    {
+      "url": "https://www.linkedin.com/jobs/search/?keywords=Entry-level%20Software%20Engineer&location=Delhi%2C%20India&f_exp=0%2C1",
+      "successCount": 2,
+      "lastSuccessAt": "2026-03-17T13:56:21.996Z",
+      "tags": [
+        "software",
+        "engineer",
+        "delhi",
+        "gurgaon"
+      ]
+    },
+    {
+      "url": "https://www.ycombinator.com/jobs?query=entry+level+software+engineer+delhi",
+      "successCount": 2,
+      "lastSuccessAt": "2026-03-17T13:56:21.996Z",
+      "tags": [
+        "software",
+        "engineer",
+        "delhi",
+        "gurgaon"
+      ]
+    },
+    {
+      "url": "https://www.ycombinator.com/jobs?query=Software+Developer+React+Next.js+Express+Node.js+MongoDB+AWS+Mid-level",
+      "successCount": 2,
+      "lastSuccessAt": "2026-03-20T08:39:12.975Z",
+      "tags": [
+        "software",
+        "developer",
+        "react",
+        "next.js",
+        "express",
+        "node.js",
+        "mongodb",
+        "aws"
+      ]
+    },
+    {
+      "url": "https://www.amazon.jobs/en/search?base_query=Software+Engineer&experience_level=Entry-Level&country=IND",
+      "successCount": 2,
+      "lastSuccessAt": "2026-03-22T08:47:36.875Z",
+      "tags": [
+        "software",
+        "engineer",
+        "remote",
+        "entry-level"
+      ]
+    },
+    {
+      "url": "https://www.linkedin.com/jobs/search/?keywords=Entry-level%20Software%20Engineer%20C%2B%2B%20Java%20Python%20%22Data%20Structures%22%20Algorithms&f_exp=0%2C1&location=India",
+      "successCount": 2,
+      "lastSuccessAt": "2026-03-23T13:47:57.204Z",
+      "tags": [
+        "entry-level",
+        "engineer",
+        "c++",
+        "java",
+        "python",
+        "data structures",
+        "algorithms",
+        "object-oriented programming",
+        "problem solving",
+        "teamwork",
+        "sql"
+      ]
+    },
+    {
+      "url": "https://www.ycombinator.com/jobs?query=software%20engineer",
+      "successCount": 1,
+      "lastSuccessAt": "2026-03-17T09:58:28.287Z",
+      "tags": []
+    },
+    {
+      "url": "https://www.linkedin.com/jobs/search/?keywords=Entry-Level%20Professional",
+      "successCount": 1,
+      "lastSuccessAt": "2026-03-17T10:06:53.350Z",
+      "tags": [
+        "entry-level",
+        "professional"
+      ]
+    },
+    {
+      "url": "https://www.linkedin.com/jobs/search?keywords=entry%20level%20software%20engineer&location=India",
+      "successCount": 1,
+      "lastSuccessAt": "2026-03-17T10:08:56.506Z",
+      "tags": [
+        "entry",
+        "level",
+        "india",
+        "entry-level"
+      ]
+    },
+    {
+      "url": "https://www.glassdoor.co.in/Job/india-entry-level-software-engineer-jobs-SRCH_IL.0,4_IC1096753_KO5,34.htm",
+      "successCount": 1,
+      "lastSuccessAt": "2026-03-17T10:08:56.506Z",
+      "tags": [
+        "entry",
+        "level",
+        "india",
+        "entry-level"
+      ]
+    },
+    {
+      "url": "https://www.metacareers.com/jobs/?q=entry%20level%20software%20engineer&locations=India",
+      "successCount": 1,
+      "lastSuccessAt": "2026-03-17T10:08:56.506Z",
+      "tags": [
+        "entry",
+        "level",
+        "india",
+        "entry-level"
+      ]
+    },
+    {
+      "url": "https://cutshort.io/jobs?q=entry%20level%20software%20engineer&locations=india",
+      "successCount": 1,
+      "lastSuccessAt": "2026-03-17T10:08:56.506Z",
+      "tags": [
+        "entry",
+        "level",
+        "india",
+        "entry-level"
+      ]
+    },
+    {
+      "url": "https://careers.google.com/jobs/results/?q=entry%20level%20software%20engineer%20India",
+      "successCount": 1,
+      "lastSuccessAt": "2026-03-17T10:08:56.506Z",
+      "tags": [
+        "entry",
+        "level",
+        "india",
+        "entry-level"
+      ]
+    },
+    {
+      "url": "https://in.indeed.com/jobs?q=entry+level+software+engineer&l=India",
+      "successCount": 1,
+      "lastSuccessAt": "2026-03-17T10:08:56.506Z",
+      "tags": [
+        "entry",
+        "level",
+        "india",
+        "entry-level"
+      ]
+    },
+    {
+      "url": "https://www.linkedin.com/jobs/search/?keywords=Entry-level%20Software%20Engineer",
+      "successCount": 1,
+      "lastSuccessAt": "2026-03-17T12:45:04.319Z",
+      "tags": [
+        "entry-level",
+        "engineer"
+      ]
+    },
+    {
+      "url": "https://www.ycombinator.com/jobs?query=Entry-Level%20Engineer%20Noida",
+      "successCount": 1,
+      "lastSuccessAt": "2026-03-17T13:24:31.947Z",
+      "tags": [
+        "engineer",
+        "noida",
+        "entry-level"
+      ]
+    },
+    {
+      "url": "https://www.linkedin.com/jobs/search/?keywords=Entry-Level%20Engineer&location=Noida%2C%20Uttar%20Pradesh%2C%20India",
+      "successCount": 1,
+      "lastSuccessAt": "2026-03-17T13:24:31.947Z",
+      "tags": [
+        "engineer",
+        "noida",
+        "entry-level"
+      ]
+    },
+    {
+      "url": "https://www.linkedin.com/jobs/search/?keywords=Entry-level%20Software%20Engineer%20Data%20Structures%20Algorithms&f_exp=0%2C1",
+      "successCount": 1,
+      "lastSuccessAt": "2026-03-18T14:31:04.645Z",
+      "tags": [
+        "entry-level",
+        "engineer",
+        "programming fundamentals",
+        "data structures",
+        "algorithms",
+        "object-oriented programming",
+        "database concepts",
+        "version control (git)",
+        "problem solving"
+      ]
+    },
+    {
+      "url": "https://www.linkedin.com/jobs/search/?keywords=Entry-Level%20Software%20Engineer&location=Delhi%2C%20India&f_exp=0%2C1",
+      "successCount": 1,
+      "lastSuccessAt": "2026-03-19T21:46:38.275Z",
+      "tags": [
+        "software",
+        "engineer",
+        "delhi ncr",
+        "entry-level"
+      ]
+    },
+    {
+      "url": "https://www.ycombinator.com/jobs?query=Senior%20Fullstack%20Engineer%20React%20Node.js%20AWS&min_experience=5",
+      "successCount": 1,
+      "lastSuccessAt": "2026-03-20T10:07:21.179Z",
+      "tags": [
+        "react",
+        "next.js",
+        "express",
+        "node.js",
+        "mongodb",
+        "aws"
+      ]
+    },
+    {
+      "url": "https://www.dice.com/jobs?q=Senior%20Fullstack%20React%20Next.js%20Node.js%20AWS%20MongoDB&filters.experienceLevel=Expert",
+      "successCount": 1,
+      "lastSuccessAt": "2026-03-20T10:16:56.289Z",
+      "tags": [
+        "react",
+        "next.js",
+        "express",
+        "node.js",
+        "mongodb",
+        "aws"
+      ]
+    },
+    {
+      "url": "https://www.linkedin.com/jobs/search/?keywords=Senior%20Fullstack%20Developer%20React%20Next.js%20Node.js%20AWS%20MongoDB&f_exp=5",
+      "successCount": 1,
+      "lastSuccessAt": "2026-03-20T10:16:56.289Z",
+      "tags": [
+        "react",
+        "next.js",
+        "express",
+        "node.js",
+        "mongodb",
+        "aws"
+      ]
+    },
+    {
+      "url": "https://www.ycombinator.com/jobs?query=Software%20Engineering%20Intern&remote=true",
+      "successCount": 1,
+      "lastSuccessAt": "2026-03-20T13:33:44.923Z",
+      "tags": [
+        "software",
+        "engineering",
+        "intern",
+        "remote",
+        "entry-level"
+      ]
+    },
+    {
+      "url": "https://www.linkedin.com/jobs/search/?keywords=Software%20Engineering%20Intern&f_WT=2",
+      "successCount": 1,
+      "lastSuccessAt": "2026-03-20T13:46:52.690Z",
+      "tags": [
+        "software",
+        "engineering",
+        "intern",
+        "remote",
+        "entry-level"
+      ]
+    },
+    {
+      "url": "https://www.ycombinator.com/jobs?query=Entry-level%20Software%20Engineer&remote=true&min_experience=0&max_experience=1",
+      "successCount": 1,
+      "lastSuccessAt": "2026-03-22T08:45:44.252Z",
+      "tags": [
+        "software",
+        "engineer",
+        "remote",
+        "entry-level"
+      ]
+    },
+    {
+      "url": "https://www.linkedin.com/jobs/search/?keywords=entry%20level%20software%20engineer&f_WT=2",
+      "successCount": 1,
+      "lastSuccessAt": "2026-03-22T08:47:36.875Z",
+      "tags": [
+        "software",
+        "engineer",
+        "remote",
+        "entry-level"
+      ]
+    },
+    {
+      "url": "https://www.ycombinator.com/jobs?query=entry%20level%20software%20engineer%20c%2B%2B%20java%20python%20algorithms&min_experience=0&max_experience=1",
+      "successCount": 1,
+      "lastSuccessAt": "2026-03-23T13:46:32.212Z",
+      "tags": [
+        "entry-level",
+        "engineer",
+        "c++",
+        "java",
+        "python",
+        "data structures",
+        "algorithms",
+        "object-oriented programming",
+        "problem solving",
+        "teamwork",
+        "sql"
+      ]
+    },
+    {
+      "url": "https://www.amazon.jobs/en/search?base_query=Software+Development+Engineer&country=IND&experience_level=Entry-Level",
+      "successCount": 1,
+      "lastSuccessAt": "2026-03-23T13:46:32.212Z",
+      "tags": [
+        "entry-level",
+        "engineer",
+        "c++",
+        "java",
+        "python",
+        "data structures",
+        "algorithms",
+        "object-oriented programming",
+        "problem solving",
+        "teamwork",
+        "sql"
+      ]
+    },
+    {
+      "url": "https://www.amazon.jobs/en/search?base_query=Software+Development+Engineer&country=IND&experience_level=Mid-Level&keywords=next.js+typescript+express+mongodb",
+      "successCount": 1,
+      "lastSuccessAt": "2026-03-23T14:01:50.847Z",
+      "tags": [
+        "skills",
+        "mongodb",
+        "typescript",
+        "next.js",
+        "express",
+        "dsa",
+        "expected",
+        "package",
+        "india"
+      ]
+    }
+  ]
+}

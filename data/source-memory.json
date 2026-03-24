@@ -1,0 +1,30 @@
+{
+  "sources": [
+    {
+      "url": "https://www.ycombinator.com/jobs?query=Engineering",
+      "successCount": 1,
+      "lastSuccessAt": "2026-03-17T09:04:31.063Z",
+      "tags": [
+        "engineering"
+      ]
+    },
+    {
+      "url": "https://www.ycombinator.com/jobs?query=Software%20Engineer",
+      "successCount": 1,
+      "lastSuccessAt": "2026-03-17T09:31:13.886Z",
+      "tags": [
+        "software",
+        "engineer"
+      ]
+    },
+    {
+      "url": "https://www.linkedin.com/jobs/search/?keywords=Software%20Engineer",
+      "successCount": 1,
+      "lastSuccessAt": "2026-03-17T09:31:13.886Z",
+      "tags": [
+        "software",
+        "engineer"
+      ]
+    }
+  ]
+}
