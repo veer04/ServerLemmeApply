@@ -127,7 +127,7 @@ export const processSessionInBackground = async ({ sessionId, prompt, resumeText
     const normalizedBatch = normalizeScrapedJobs(targetJobs)
     for (const normalizedJob of normalizedBatch) {
       throwIfAborted()
-      const scoredJob = scoreJobForProfile(normalizedJob, structuredProfile)
+      const scoredJob = await scoreJobForProfile(normalizedJob, structuredProfile)
       const streamJob = {
         ...scoredJob,
         scrapedAt: new Date(),
