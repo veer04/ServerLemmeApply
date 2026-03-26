@@ -58,7 +58,7 @@ const isMeaningfulMatchedJob = (job) => {
 
 export const buildMatchedJobs = async ({ rawJobs, profile }) => {
   const normalizedJobs = normalizeScrapedJobs(rawJobs)
-  const scoredJobs = scoreAllJobs(normalizedJobs, profile)
+  const scoredJobs = await scoreAllJobs(normalizedJobs, profile)
   const shortScored = scoredJobs.slice(0, 40)
   const aiFiltered = await filterJobsWithAI({
     profile,

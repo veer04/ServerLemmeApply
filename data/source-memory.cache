@@ -346,6 +346,16 @@
       ]
     },
     {
+      "url": "https://www.amazon.jobs/en/search?base_query=Software%20Engineer&country=IND&city=Noida&experience_level=Entry-Level",
+      "successCount": 2,
+      "lastSuccessAt": "2026-03-26T09:24:18.453Z",
+      "tags": [
+        "software",
+        "engineer",
+        "noida"
+      ]
+    },
+    {
       "url": "https://www.ycombinator.com/jobs?query=software%20engineer",
       "successCount": 1,
       "lastSuccessAt": "2026-03-17T09:58:28.287Z",
