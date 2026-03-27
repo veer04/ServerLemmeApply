@@ -41,6 +41,30 @@ const debugLog = (message, context = {}) => {
   console.log(`[gemini-service] ${message}`, context)
 }
 
+const summarizeReasoning = (value, maxLength = 220) => {
+  return String(value || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, maxLength)
+}
+
+const extractHosts = (urls, limit = 6) => {
+  const hosts = []
+  const seen = new Set()
+  for (const entry of Array.isArray(urls) ? urls : []) {
+    try {
+      const host = new URL(String(entry || '').trim()).hostname.replace(/^www\./i, '').toLowerCase()
+      if (!host || seen.has(host)) continue
+      seen.add(host)
+      hosts.push(host)
+      if (hosts.length >= limit) break
+    } catch {
+      // Ignore invalid URLs in diagnostics summary.
+    }
+  }
+  return hosts
+}
+
 const stripCodeFence = (text) => {
   return text.replace(/```json|```/gi, '').trim()
 }
@@ -215,6 +239,150 @@ const buildProfileQueryText = (profile) => {
   return terms.length > 0 ? terms.slice(0, 8).join(' ') : 'software engineer'
 }
 
+const allowedJobTypes = new Set([
+  'full-time',
+  'internship',
+  'contract',
+  'part-time',
+  'remote',
+])
+
+const buildFallbackSearchIntent = (profile) => {
+  const role = String(profile?.role || '').trim() || 'software engineer'
+  const skills = normalizeArray([...(profile?.primarySkills || []), ...(profile?.secondarySkills || [])]).slice(
+    0,
+    14,
+  )
+  const experienceYears = Number(profile?.experienceYears || 0)
+  const experience = experienceYears > 0 ? `${experienceYears}+ years` : 'not specified'
+  const roleAndSeniority = `${role} ${String(profile?.seniorityLevel || '')}`.toLowerCase()
+  const inferredJobType = /\b(intern|internship|fresher|graduate|entry|new grad)\b/.test(roleAndSeniority)
+    ? 'internship'
+    : 'full-time'
+  const keywords = normalizeArray([
+    role,
+    ...skills,
+    profile?.locationPreference || '',
+    profile?.remotePreference ? 'remote' : '',
+    profile?.seniorityLevel || '',
+  ]).slice(0, 20)
+
+  return {
+    role,
+    skills,
+    experience,
+    job_type: inferredJobType,
+    keywords,
+  }
+}
+
+const normalizeSearchIntent = (rawIntent, fallbackIntent) => {
+  const intent = rawIntent && typeof rawIntent === 'object' ? rawIntent : {}
+  const role = String(intent.role ?? fallbackIntent.role ?? '').trim() || fallbackIntent.role
+  const skills = normalizeArray(intent.skills ?? fallbackIntent.skills).slice(0, 16)
+  const experience = String(intent.experience ?? fallbackIntent.experience ?? '').trim() || fallbackIntent.experience
+  const rawJobType = String(intent.job_type ?? fallbackIntent.job_type ?? '').trim().toLowerCase()
+  const jobType = allowedJobTypes.has(rawJobType) ? rawJobType : fallbackIntent.job_type
+  const keywords = normalizeArray(intent.keywords ?? fallbackIntent.keywords).slice(0, 24)
+
+  return {
+    role,
+    skills,
+    experience,
+    job_type: jobType,
+    keywords,
+  }
+}
+
+const joinQueryParts = (parts) =>
+  parts
+    .map((entry) => String(entry || '').replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+    .join(' ')
+    .trim()
+
+const buildQueryVariantsFromIntent = (intent, limit = 8) => {
+  const role = String(intent?.role || '').trim() || 'software engineer'
+  const skills = normalizeArray(intent?.skills || []).slice(0, 6)
+  const keywords = normalizeArray(intent?.keywords || []).slice(0, 10)
+  const experience = String(intent?.experience || '').trim()
+  const jobType = String(intent?.job_type || '').trim()
+  const jobTypeToken = jobType === 'full-time' ? '' : jobType
+
+  const variants = [
+    joinQueryParts([role, ...skills.slice(0, 3), keywords[0]]),
+    joinQueryParts([role, ...skills.slice(0, 2), experience]),
+    joinQueryParts([role, ...keywords.slice(0, 5)]),
+    joinQueryParts([role, jobTypeToken, ...skills.slice(0, 2)]),
+    joinQueryParts([role, ...skills.slice(0, 3)]),
+    joinQueryParts([role]),
+  ]
+
+  const deduped = []
+  const seen = new Set()
+  for (const variant of variants) {
+    if (!variant || variant.length < 3) continue
+    const key = variant.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    deduped.push(variant)
+    if (deduped.length >= limit) break
+  }
+
+  return deduped
+}
+
+const buildSearchIntentWithGemini = async ({ profile }) => {
+  const fallbackIntent = buildFallbackSearchIntent(profile)
+  const promptPayload = `
+You are a job search intent extractor.
+Return ONLY valid JSON with this exact shape:
+{
+  "role": "",
+  "skills": ["..."],
+  "experience": "",
+  "job_type": "",
+  "keywords": ["..."]
+}
+
+Rules:
+- "job_type" must be one of: "full-time", "internship", "contract", "part-time", "remote".
+- "skills" should include concrete technologies only.
+- "keywords" should include high-signal search terms for scraping.
+- Keep "keywords" concise and deduplicated.
+- No markdown. No explanation. No extra keys.
+
+Candidate profile:
+${JSON.stringify(profile)}
+`
+
+  const parsed = await runGeminiJsonTask({
+    cacheNamespace: 'search-intent',
+    cachePayload: {
+      profile: {
+        role: profile?.role || '',
+        primarySkills: profile?.primarySkills || [],
+        secondarySkills: profile?.secondarySkills || [],
+        experienceYears: Number(profile?.experienceYears || 0),
+        locationPreference: profile?.locationPreference || '',
+        remotePreference: Boolean(profile?.remotePreference),
+        seniorityLevel: profile?.seniorityLevel || '',
+      },
+    },
+    promptPayload,
+    fallbackValue: fallbackIntent,
+  })
+
+  const normalizedIntent = normalizeSearchIntent(parsed, fallbackIntent)
+  debugLog('search intent prepared', {
+    role: normalizedIntent.role,
+    skillCount: normalizedIntent.skills.length,
+    jobType: normalizedIntent.job_type,
+    keywordCount: normalizedIntent.keywords.length,
+  })
+  return normalizedIntent
+}
+
 const normalizeHttpUrls = (urls, limit = 25) => {
   if (!Array.isArray(urls)) return []
 
@@ -355,6 +523,12 @@ Strictly no markdown, no explanation, no extra keys.
       elapsedMs: Date.now() - start,
       role: normalized.role,
       primarySkills: normalized.primarySkills.length,
+      secondarySkills: normalized.secondarySkills.length,
+      experienceYears: normalized.experienceYears,
+      locationPreference: normalized.locationPreference || 'none',
+      remotePreference: normalized.remotePreference,
+      salaryMin: Number(normalized.salaryExpectation?.min || 0),
+      salaryMax: Number(normalized.salaryExpectation?.max || 0),
     })
     return {
       profile: normalized,
@@ -421,29 +595,40 @@ export const discoverJobSourcesWithGemini = async ({
   maxTargets = 20,
 }) => {
   const fallback = normalizeHttpUrls(fallbackTargets, Math.max(12, maxTargets))
-  const query = buildProfileQueryText(profile)
+  const searchIntent = await buildSearchIntentWithGemini({ profile })
+  const queryVariants = buildQueryVariantsFromIntent(searchIntent, 10)
+  const query = queryVariants[0] || buildProfileQueryText(profile)
 
   const promptPayload = `
 Generate dynamic job search URLs for this candidate profile.
 Return ONLY JSON:
 {
   "urls": ["https://..."],
-  "reasoning": "short"
+  "reasoning": "short",
+  "queryPlan": {
+    "primaryQuery": "",
+    "variantsUsed": ["..."]
+  }
 }
 
 Rules:
 - Include a mix of global, India, and remote-friendly sources.
 - Include ATS engines (Greenhouse, Lever, Workday) + startup boards + company career pages.
-- Use the profile query context.
+- Use the structured SearchIntent and provided query variants.
+- Ensure URL query parameters are aligned to the query variants where applicable.
 - Avoid duplicates and low-quality/non-job URLs.
 - Prefer high-signal sources likely to return engineering jobs quickly.
+- Avoid login/help/support/legal pages.
 - Return ${maxTargets} to ${Math.max(maxTargets + 6, 24)} URLs.
 
 Profile:
 ${JSON.stringify(profile)}
 
-Query:
-${query}
+SearchIntent:
+${JSON.stringify(searchIntent)}
+
+Optimized Query Variants:
+${JSON.stringify(queryVariants)}
 
 Fallback hints:
 ${JSON.stringify(fallback.slice(0, 18))}
@@ -453,6 +638,8 @@ ${JSON.stringify(fallback.slice(0, 18))}
     cacheNamespace: 'source-discovery',
     cachePayload: {
       profile,
+      searchIntent,
+      queryVariants: queryVariants.slice(0, 8),
       maxTargets,
       fallback: fallback.slice(0, 20),
     },
@@ -460,16 +647,30 @@ ${JSON.stringify(fallback.slice(0, 18))}
     fallbackValue: {
       urls: fallback,
       reasoning: 'Fallback to configured targets.',
+      queryPlan: {
+        primaryQuery: query,
+        variantsUsed: queryVariants.slice(0, 4),
+      },
     },
   })
 
   const discovered = normalizeHttpUrls(parsed.urls || [], Math.max(maxTargets + 8, 28))
   const merged = normalizeHttpUrls([...discovered, ...fallback], maxTargets)
+  debugLog('source discovery plan', {
+    primaryQuery: parsed?.queryPlan?.primaryQuery || query,
+    variantsUsed: Array.isArray(parsed?.queryPlan?.variantsUsed)
+      ? parsed.queryPlan.variantsUsed.length
+      : 0,
+    discoveredCount: discovered.length,
+    discoveredHosts: extractHosts(discovered),
+    reasoning: summarizeReasoning(parsed?.reasoning),
+  })
   return merged.length > 0 ? merged : fallback.slice(0, maxTargets)
 }
 
 export const filterJobsWithAI = async ({ profile, jobs }) => {
   if (!Array.isArray(jobs) || jobs.length === 0) {
+    debugLog('ai filter skipped - empty jobs', {})
     return {
       relevantJobs: [],
       discardedJobs: [],
@@ -481,12 +682,19 @@ export const filterJobsWithAI = async ({ profile, jobs }) => {
   const candidateJobs = jobs.slice(0, 45)
   if (!vertexClient || candidateJobs.length <= 8) {
     const fallbackRelevant = candidateJobs.slice(0, 20)
-    return {
+    const fallbackResponse = {
       relevantJobs: fallbackRelevant,
       discardedJobs: candidateJobs.slice(fallbackRelevant.length),
       reasoning: 'AI filter skipped; fallback shortlist selected.',
       source: 'fallback',
     }
+    debugLog('ai filter fallback', {
+      candidateJobs: candidateJobs.length,
+      relevantJobs: fallbackResponse.relevantJobs.length,
+      discardedJobs: fallbackResponse.discardedJobs.length,
+      reason: summarizeReasoning(fallbackResponse.reasoning),
+    })
+    return fallbackResponse
   }
 
   const compactJobs = candidateJobs.map((job, index) => ({
@@ -560,22 +768,40 @@ ${JSON.stringify(compactJobs)}
     (job) => !fallbackKeySet.has(String(job.externalId || buildJobKey(job))),
   )
 
-  return {
+  const response = {
     relevantJobs: fallbackRelevant,
     discardedJobs,
     reasoning: String(parsed.reasoning || 'AI filter completed.').trim(),
     source: relevantJobs.length > 0 ? 'gemini' : 'fallback',
   }
+  debugLog('ai filter completed', {
+    candidateJobs: candidateJobs.length,
+    relevantJobs: response.relevantJobs.length,
+    discardedJobs: response.discardedJobs.length,
+    source: response.source,
+    reason: summarizeReasoning(response.reasoning),
+  })
+  return response
 }
 
 export const rankJobsWithAI = async ({ profile, jobs }) => {
   if (!Array.isArray(jobs) || jobs.length <= 1) {
+    debugLog('ai rank skipped - insufficient jobs', {
+      candidateJobs: Array.isArray(jobs) ? jobs.length : 0,
+    })
     return jobs || []
   }
 
   const rankCandidates = jobs.slice(0, 25)
   if (!vertexClient) {
-    return [...rankCandidates].sort((left, right) => Number(right.matchScore || 0) - Number(left.matchScore || 0))
+    const fallbackRanked = [...rankCandidates].sort(
+      (left, right) => Number(right.matchScore || 0) - Number(left.matchScore || 0),
+    )
+    debugLog('ai rank fallback - no vertex', {
+      candidateJobs: rankCandidates.length,
+      rankedJobs: fallbackRanked.length,
+    })
+    return fallbackRanked
   }
 
   const compact = rankCandidates.map((job, index) => ({
@@ -627,7 +853,15 @@ ${JSON.stringify(compact)}
     : []
 
   if (orderedIds.length === 0) {
-    return [...rankCandidates].sort((left, right) => Number(right.matchScore || 0) - Number(left.matchScore || 0))
+    const fallbackRanked = [...rankCandidates].sort(
+      (left, right) => Number(right.matchScore || 0) - Number(left.matchScore || 0),
+    )
+    debugLog('ai rank fallback - empty sorted ids', {
+      candidateJobs: rankCandidates.length,
+      rankedJobs: fallbackRanked.length,
+      reason: summarizeReasoning(parsed.reasoning || 'No ordering provided by model.'),
+    })
+    return fallbackRanked
   }
 
   const rankedFromAi = orderedIds.map((id) => aiIdToJob.get(id)).filter(Boolean)
@@ -636,10 +870,18 @@ ${JSON.stringify(compact)}
     (job) => !rankedKeys.has(String(job.externalId || buildJobKey(job))),
   )
 
-  return [
+  const ranked = [
     ...rankedFromAi,
     ...remaining.sort((left, right) => Number(right.matchScore || 0) - Number(left.matchScore || 0)),
   ]
+  debugLog('ai rank completed', {
+    candidateJobs: rankCandidates.length,
+    rankedFromAi: rankedFromAi.length,
+    fallbackTail: remaining.length,
+    finalRanked: ranked.length,
+    reason: summarizeReasoning(parsed.reasoning || 'AI ranking applied.'),
+  })
+  return ranked
 }
 
 export const rerankJobsWithGemini = async ({ profile, jobs }) => {
