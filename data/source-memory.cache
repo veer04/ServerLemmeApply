@@ -2,8 +2,8 @@
   "sources": [
     {
       "url": "https://www.amazon.jobs/en/search?base_query=Software+Engineer&country=IND&experience_level=Entry-Level",
-      "successCount": 24,
-      "lastSuccessAt": "2026-03-23T14:00:04.363Z",
+      "successCount": 31,
+      "lastSuccessAt": "2026-03-27T20:54:28.204Z",
       "tags": [
         "software",
         "engineer",
@@ -149,8 +149,8 @@
     },
     {
       "url": "https://www.shine.com/job-search/software-developer-react-nextjs-express-nodejs-mongodb-aws-jobs-in-india",
-      "successCount": 9,
-      "lastSuccessAt": "2026-03-23T14:00:04.363Z",
+      "successCount": 11,
+      "lastSuccessAt": "2026-03-26T17:53:50.411Z",
       "tags": [
         "software",
         "developer",
@@ -177,7 +177,35 @@
         "typescript",
         "dsa",
         "expected",
-        "package"
+        "package",
+        "delhi ncr",
+        "system design",
+        "docker",
+        "kubernetes"
+      ]
+    },
+    {
+      "url": "https://www.dice.com/jobs?q=Senior%20Fullstack%20React%20Next.js%20Node.js%20AWS&filters.experienceLevel=Expert",
+      "successCount": 9,
+      "lastSuccessAt": "2026-03-26T17:53:50.411Z",
+      "tags": [
+        "react",
+        "next.js",
+        "express",
+        "node.js",
+        "mongodb",
+        "aws",
+        "skills",
+        "typescript",
+        "dsa",
+        "expected",
+        "package",
+        "india",
+        "software",
+        "engineer",
+        "system design",
+        "docker",
+        "kubernetes"
       ]
     },
     {
@@ -225,25 +253,6 @@
       ]
     },
     {
-      "url": "https://www.dice.com/jobs?q=Senior%20Fullstack%20React%20Next.js%20Node.js%20AWS&filters.experienceLevel=Expert",
-      "successCount": 5,
-      "lastSuccessAt": "2026-03-23T14:00:04.363Z",
-      "tags": [
-        "react",
-        "next.js",
-        "express",
-        "node.js",
-        "mongodb",
-        "aws",
-        "skills",
-        "typescript",
-        "dsa",
-        "expected",
-        "package",
-        "india"
-      ]
-    },
-    {
       "url": "https://www.linkedin.com/jobs/search/?keywords=Senior%20Fullstack%20Developer%20React%20Node.js%20AWS&f_exp=5%2C6",
       "successCount": 4,
       "lastSuccessAt": "2026-03-20T10:16:56.289Z",
@@ -277,6 +286,40 @@
         "node.js",
         "mongodb",
         "aws"
+      ]
+    },
+    {
+      "url": "https://example.com/jobs",
+      "successCount": 3,
+      "lastSuccessAt": "2026-03-26T15:22:43.124Z",
+      "tags": [
+        "software",
+        "engineer",
+        "react",
+        "node.js",
+        "mongodb",
+        "typescript",
+        "bengaluru"
+      ]
+    },
+    {
+      "url": "https://www.linkedin.com/jobs/search/?keywords=Intern%20MongoDB%20TypeScript%20Next.js&f_exp=0%2C1&f_TP=1",
+      "successCount": 3,
+      "lastSuccessAt": "2026-03-26T18:08:17.846Z",
+      "tags": [
+        "intern",
+        "mongodb",
+        "typescript",
+        "next.js",
+        "express",
+        "dsa",
+        "node.js",
+        "react",
+        "system design",
+        "docker",
+        "aws",
+        "kubernetes",
+        "entry-level"
       ]
     },
     {
@@ -353,6 +396,41 @@
         "software",
         "engineer",
         "noida"
+      ]
+    },
+    {
+      "url": "https://www.shine.com/job-search/software-engineer-mongodb-typescript-nextjs-express-nodejs-react-jobs-in-delhi-ncr?exp=2&sal=1000000",
+      "successCount": 2,
+      "lastSuccessAt": "2026-03-26T16:35:58.501Z",
+      "tags": [
+        "software",
+        "engineer",
+        "mongodb",
+        "typescript",
+        "next.js",
+        "express",
+        "dsa",
+        "node.js",
+        "react",
+        "delhi ncr"
+      ]
+    },
+    {
+      "url": "https://www.shine.com/job-search/fresher-developer-jobs-in-gurugram",
+      "successCount": 2,
+      "lastSuccessAt": "2026-03-27T20:05:42.291Z",
+      "tags": [
+        "developer",
+        "gurugram"
+      ]
+    },
+    {
+      "url": "https://www.linkedin.com/jobs/search/?keywords=developer%20fresher&location=Gurugram&f_exp=0%2C1",
+      "successCount": 2,
+      "lastSuccessAt": "2026-03-27T20:05:42.291Z",
+      "tags": [
+        "developer",
+        "gurugram"
       ]
     },
     {
@@ -627,6 +705,98 @@
         "expected",
         "package",
         "india"
+      ]
+    },
+    {
+      "url": "https://www.amazon.jobs/en/search?base_query=Software%20Engineer&country=IND&city=Gurugram&experience_level=Entry-Level",
+      "successCount": 1,
+      "lastSuccessAt": "2026-03-26T11:10:16.286Z",
+      "tags": [
+        "software",
+        "engineer",
+        "gurugram"
+      ]
+    },
+    {
+      "url": "https://www.shine.com/job-search/backend-developer-nodejs-entry-level-jobs-in-bengaluru",
+      "successCount": 1,
+      "lastSuccessAt": "2026-03-26T16:15:59.671Z",
+      "tags": [
+        "backend",
+        "developer",
+        "node.js",
+        "bengaluru"
+      ]
+    },
+    {
+      "url": "https://www.linkedin.com/jobs/search/?keywords=Senior%20Software%20Engineer%20MongoDB%20TypeScript%20Next.js&f_exp=5%2C6&f_TPR=r86400",
+      "successCount": 1,
+      "lastSuccessAt": "2026-03-26T17:48:39.723Z",
+      "tags": [
+        "software",
+        "engineer",
+        "mongodb",
+        "typescript",
+        "next.js",
+        "express",
+        "dsa",
+        "node.js",
+        "react",
+        "system design",
+        "docker",
+        "aws",
+        "kubernetes"
+      ]
+    },
+    {
+      "url": "https://www.ycombinator.com/jobs?query=React%20Intern%20Bangalore&min_experience=0&max_experience=1",
+      "successCount": 1,
+      "lastSuccessAt": "2026-03-27T19:58:40.558Z",
+      "tags": [
+        "react",
+        "developer",
+        "bangalore",
+        "entry-level"
+      ]
+    },
+    {
+      "url": "https://www.amazon.jobs/en/search?base_query=developer&country=IND&city=Gurugram&experience_level=Entry-Level",
+      "successCount": 1,
+      "lastSuccessAt": "2026-03-27T20:05:42.291Z",
+      "tags": [
+        "developer",
+        "gurugram"
+      ]
+    },
+    {
+      "url": "https://www.linkedin.com/jobs/search/?keywords=developer&location=Gurugram&f_exp=0%2C1",
+      "successCount": 1,
+      "lastSuccessAt": "2026-03-27T20:05:42.291Z",
+      "tags": [
+        "developer",
+        "gurugram"
+      ]
+    },
+    {
+      "url": "https://www.ycombinator.com/jobs?query=software%20engineer%20Next.js%20Express%20PostgreSQL%20Redis&min_experience=2&job_type=full-time",
+      "successCount": 1,
+      "lastSuccessAt": "2026-03-27T20:54:28.204Z",
+      "tags": [
+        "next.js",
+        "express",
+        "postgresql",
+        "redis"
+      ]
+    },
+    {
+      "url": "https://www.amazon.jobs/en/search?base_query=Software+Engineer&country=IND&keyword=Next.js+Express+PostgreSQL+Redis&experience_level=Entry-Level",
+      "successCount": 1,
+      "lastSuccessAt": "2026-03-27T20:56:52.141Z",
+      "tags": [
+        "next.js",
+        "express",
+        "postgresql",
+        "redis"
       ]
     }
   ]

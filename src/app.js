@@ -4,6 +4,7 @@ import express from 'express'
 import { env } from './config/environment.js'
 import { errorHandler } from './middleware/errorHandler.js'
 import { notFoundHandler } from './middleware/notFound.js'
+import { authRouter } from './routes/authRoutes.js'
 import { chatRouter } from './routes/chatRoutes.js'
 import { profileRouter } from './routes/profileRoutes.js'
 import { streamRouter } from './routes/streamRoutes.js'
@@ -27,6 +28,7 @@ app.get('/api/health', (_request, response) => {
   })
 })
 
+app.use('/api/auth', authRouter)
 app.use('/api/chat', chatRouter)
 app.use('/api/jobs', streamRouter)
 app.use('/api/profile', profileRouter)

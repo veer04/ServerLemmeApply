@@ -79,8 +79,8 @@ const getOrCreateProfile = async (userIdObjectId) => {
 
 export const getUserProfile = async (request, response, next) => {
   try {
-    const userId = toObjectId(request.params.userId, 'userId')
-    const profile = await getOrCreateProfile(userId)
+    const authenticatedUserId = toObjectId(request.user?.userId, 'userId')
+    const profile = await getOrCreateProfile(authenticatedUserId)
 
     response.json({
       profile: serializeProfile(profile),

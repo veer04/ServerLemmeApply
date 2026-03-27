@@ -5,17 +5,29 @@
   "type": "module",
   "scripts": {
     "dev": "nodemon src/server.js",
-    "start": "node src/server.js"
+    "start": "node src/server.js",
+    "worker": "node src/worker.js",
+    "dev:worker": "nodemon src/worker.js"
   },
   "dependencies": {
     "@google-cloud/vertexai": "^1.10.2",
+    "bcryptjs": "^3.0.3",
+    "bullmq": "^5.71.1",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
+    "google-auth-library": "^10.6.2",
+    "ioredis": "^5.10.1",
+    "jsonwebtoken": "^9.0.3",
+    "mammoth": "^1.12.0",
     "mongoose": "^8.19.3",
     "multer": "^2.0.2",
+    "nodemailer": "^8.0.4",
     "pdf-parse": "^1.1.1",
-    "playwright": "^1.56.1"
+    "playwright": "^1.56.1",
+    "redis": "^5.11.0",
+    "tesseract.js": "^7.0.0",
+    "word-extractor": "^1.0.4"
   },
   "devDependencies": {
     "nodemon": "^3.1.11"

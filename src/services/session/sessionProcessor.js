@@ -57,11 +57,52 @@ const INITIAL_SCRAPE_GOAL = 15
 const DEEP_SCRAPE_GOAL = 34
 const INITIAL_SOURCE_CAP = 12
 const DEEP_SOURCE_CAP = 24
-const HIGH_RELEVANCE_SCORE = 60
-const MIN_HIGH_RELEVANCE_ROLES = 4
+const MIN_STRONG_MATCH_COUNT = 2
+const MIN_STRONG_MATCH_RATIO = 0.25
 
-const countHighRelevanceJobs = (jobs) => {
-  return (jobs || []).filter((job) => Number(job?.matchScore || 0) >= HIGH_RELEVANCE_SCORE).length
+const toSortedFiniteNumbers = (values) =>
+  (Array.isArray(values) ? values : [])
+    .map((entry) => Number(entry))
+    .filter((entry) => Number.isFinite(entry))
+    .sort((left, right) => left - right)
+
+const percentile = (values, percentileValue) => {
+  const sorted = toSortedFiniteNumbers(values)
+  if (sorted.length === 0) return 0
+  if (sorted.length === 1) return sorted[0]
+
+  const normalizedPercentile = Math.max(0, Math.min(100, Number(percentileValue) || 0))
+  const rank = (normalizedPercentile / 100) * (sorted.length - 1)
+  const lowerIndex = Math.floor(rank)
+  const upperIndex = Math.ceil(rank)
+  if (lowerIndex === upperIndex) return sorted[lowerIndex]
+
+  const weight = rank - lowerIndex
+  return sorted[lowerIndex] * (1 - weight) + sorted[upperIndex] * weight
+}
+
+const getStrongMatchStats = (jobs) => {
+  const scores = toSortedFiniteNumbers((jobs || []).map((job) => Number(job?.matchScore || 0)))
+  if (scores.length === 0) {
+    return {
+      strongCount: 0,
+      strongCutoff: 0,
+      minStrongRequired: MIN_STRONG_MATCH_COUNT,
+    }
+  }
+
+  const strongCutoff = scores.length >= 4 ? percentile(scores, 75) : 60
+  const strongCount = scores.filter((score) => score >= strongCutoff).length
+  const minStrongRequired = Math.max(
+    MIN_STRONG_MATCH_COUNT,
+    Math.ceil(scores.length * MIN_STRONG_MATCH_RATIO),
+  )
+
+  return {
+    strongCount,
+    strongCutoff,
+    minStrongRequired,
+  }
 }
 
 const buildContinuationPrompt = ({ foundJobs, strongJobs }) => {
@@ -201,9 +242,19 @@ export const processSessionInBackground = async ({ sessionId, prompt, resumeText
           profile: structuredProfile,
         }),
     )
-    let strongMatchCount = countHighRelevanceJobs(matched.filteredJobs)
+    let strongMatchStats = getStrongMatchStats(matched.filteredJobs)
+    debugLog(sessionId, 'initial matching snapshot', {
+      normalizedJobs: matched.normalizedJobs.length,
+      scoredJobs: matched.scoredJobs.length,
+      filteredJobs: matched.filteredJobs.length,
+      averageMatchScore: matched.averageMatchScore,
+      strongCount: strongMatchStats.strongCount,
+      minStrongRequired: strongMatchStats.minStrongRequired,
+      aiFilteringReasoning: String(matched.aiFilteringReasoning || '').slice(0, 220),
+    })
     const needsDeeperSearch =
-      matched.filteredJobs.length < 6 || strongMatchCount < MIN_HIGH_RELEVANCE_ROLES
+      matched.filteredJobs.length < 6 ||
+      strongMatchStats.strongCount < strongMatchStats.minStrongRequired
 
     if (needsDeeperSearch) {
       const deeperScrapedJobs = await runPhase(
@@ -233,7 +284,16 @@ export const processSessionInBackground = async ({ sessionId, prompt, resumeText
             profile: structuredProfile,
           }),
       )
-      strongMatchCount = countHighRelevanceJobs(matched.filteredJobs)
+      strongMatchStats = getStrongMatchStats(matched.filteredJobs)
+      debugLog(sessionId, 'deeper matching snapshot', {
+        normalizedJobs: matched.normalizedJobs.length,
+        scoredJobs: matched.scoredJobs.length,
+        filteredJobs: matched.filteredJobs.length,
+        averageMatchScore: matched.averageMatchScore,
+        strongCount: strongMatchStats.strongCount,
+        minStrongRequired: strongMatchStats.minStrongRequired,
+        aiFilteringReasoning: String(matched.aiFilteringReasoning || '').slice(0, 220),
+      })
     }
 
     const filteredJobs = matched.filteredJobs.map((job) => ({
@@ -266,7 +326,7 @@ export const processSessionInBackground = async ({ sessionId, prompt, resumeText
     )
     const continuationPrompt = buildContinuationPrompt({
       foundJobs: filteredJobs.length,
-      strongJobs: strongMatchCount,
+      strongJobs: strongMatchStats.strongCount,
     })
     const finalSummary = `${summary}\n\n${continuationPrompt}`
 

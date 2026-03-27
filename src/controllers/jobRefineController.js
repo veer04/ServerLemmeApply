@@ -5,6 +5,7 @@ import {
 } from '../services/gemini/geminiService.js'
 import { scrapeJobsWithPlaywright } from '../services/scraping/playwrightScraper.js'
 import { buildMatchedJobs } from '../services/session/matchPipeline.js'
+import mongoose from 'mongoose'
 
 const baseProfile = {
   role: '',
@@ -43,8 +44,40 @@ const mergeJobs = (existingJobs, incomingJobs, limit = 60) => {
 const continuationInstructionRegex =
   /\b(move\s*further|continue|search\s*more|more\s*jobs|load\s*more|hunt\s*deeper|go\s*deeper|keep\s*searching|keep\s*going)\b/i
 
-const countStrongMatches = (jobs) => {
-  return (jobs || []).filter((job) => Number(job?.matchScore || 0) >= 60).length
+const toSortedFiniteNumbers = (values) =>
+  (Array.isArray(values) ? values : [])
+    .map((entry) => Number(entry))
+    .filter((entry) => Number.isFinite(entry))
+    .sort((left, right) => left - right)
+
+const percentile = (values, percentileValue) => {
+  const sorted = toSortedFiniteNumbers(values)
+  if (sorted.length === 0) return 0
+  if (sorted.length === 1) return sorted[0]
+
+  const normalizedPercentile = Math.max(0, Math.min(100, Number(percentileValue) || 0))
+  const rank = (normalizedPercentile / 100) * (sorted.length - 1)
+  const lowerIndex = Math.floor(rank)
+  const upperIndex = Math.ceil(rank)
+  if (lowerIndex === upperIndex) return sorted[lowerIndex]
+
+  const weight = rank - lowerIndex
+  return sorted[lowerIndex] * (1 - weight) + sorted[upperIndex] * weight
+}
+
+const getStrongMatchStats = (jobs) => {
+  const scores = toSortedFiniteNumbers((jobs || []).map((job) => Number(job?.matchScore || 0)))
+  if (scores.length === 0) {
+    return {
+      strongCount: 0,
+      minStrongRequired: 2,
+    }
+  }
+
+  const strongCutoff = scores.length >= 4 ? percentile(scores, 75) : 60
+  const strongCount = scores.filter((score) => score >= strongCutoff).length
+  const minStrongRequired = Math.max(2, Math.ceil(scores.length * 0.25))
+  return { strongCount, minStrongRequired }
 }
 
 export const refineJobs = async (request, response, next) => {
@@ -52,6 +85,7 @@ export const refineJobs = async (request, response, next) => {
     const sessionId = String(request.body.sessionId || '').trim()
     const instruction = String(request.body.instruction || '').trim()
     const loadMore = Boolean(request.body.loadMore)
+    const userId = String(request.user?.userId || '').trim()
     const continuationRequested = continuationInstructionRegex.test(instruction)
     const shouldLoadMore = loadMore || continuationRequested
 
@@ -60,10 +94,18 @@ export const refineJobs = async (request, response, next) => {
       error.statusCode = 400
       throw error
     }
+    if (!mongoose.Types.ObjectId.isValid(sessionId)) {
+      const error = new Error('sessionId must be a valid ObjectId.')
+      error.statusCode = 400
+      throw error
+    }
 
-    const session = await ChatSession.findById(sessionId)
+    const session = await ChatSession.findOne({
+      _id: sessionId,
+      userId: new mongoose.Types.ObjectId(userId),
+    })
     if (!session) {
-      const error = new Error('Session not found for refinement.')
+      const error = new Error('Session not found for this user.')
       error.statusCode = 404
       throw error
     }
@@ -83,7 +125,10 @@ export const refineJobs = async (request, response, next) => {
 
     let rescraped = false
     let combinedRawJobs = matched.normalizedJobs
-    const weakRelevance = matched.filteredJobs.length < 5 || countStrongMatches(matched.filteredJobs) < 3
+    const strongMatchStats = getStrongMatchStats(matched.filteredJobs)
+    const weakRelevance =
+      matched.filteredJobs.length < 5 ||
+      strongMatchStats.strongCount < strongMatchStats.minStrongRequired
     if (shouldLoadMore || weakRelevance) {
       const freshlyScraped = await scrapeJobsWithPlaywright(refinedProfile, {
         maxTargetsToScan: shouldLoadMore ? 20 : 14,
@@ -119,7 +164,7 @@ export const refineJobs = async (request, response, next) => {
       userPrompt: instruction,
       isRefinement: true,
     })
-    if (mergedJobs.length === 0 || countStrongMatches(mergedJobs) === 0) {
+    if (mergedJobs.length === 0 || getStrongMatchStats(mergedJobs).strongCount === 0) {
       assistantSummary = `${assistantSummary}\n\nI could not find strongly relevant openings for this instruction yet. You can tweak the query, or ask me to hunt deeper by saying "move further".`
     }
 
