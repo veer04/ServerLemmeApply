@@ -4,6 +4,11 @@ const rolePatterns = [
   { role: 'Frontend Engineer', pattern: /\bfront\s*end|frontend|react\b/i },
   { role: 'Backend Engineer', pattern: /\bback\s*end|backend|node(\.js)?\b/i },
   { role: 'Software Engineer', pattern: /\bsoftware\s+engineer\b/i },
+  { role: 'DevOps Engineer', pattern: /\bdevops|platform engineer|site reliability|sre\b/i },
+  { role: 'Data Engineer', pattern: /\bdata engineer|etl|spark|warehouse\b/i },
+  { role: 'Machine Learning Engineer', pattern: /\bmachine learning|ml engineer|llm|genai|ai\b/i },
+  { role: 'Product Engineer', pattern: /\bproduct engineer|product developer\b/i },
+  { role: 'QA Engineer', pattern: /\bqa|quality assurance|test automation\b/i },
 ]
 
 const skillList = [
@@ -15,8 +20,30 @@ const skillList = [
   'javascript',
   'typescript',
   'next.js',
+  'nextjs',
   'api',
   'sql',
+  'nestjs',
+  'graphql',
+  'microservices',
+  'aws',
+  'gcp',
+  'azure',
+  'docker',
+  'kubernetes',
+  'terraform',
+  'jenkins',
+  'redis',
+  'python',
+  'java',
+  'go',
+  'golang',
+  'spring boot',
+  'pytorch',
+  'tensorflow',
+  'llm',
+  'genai',
+  'machine learning',
 ]
 
 const extractExperienceYears = (input) => {

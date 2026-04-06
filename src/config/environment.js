@@ -55,6 +55,8 @@ export const env = {
   jwtSecret: String(process.env.JWT_SECRET || 'dev_jwt_secret_change_me').trim(),
   jwtExpiresIn: String(process.env.JWT_EXPIRES_IN || '7d').trim(),
   otpExpiryMinutes: parseNumber(process.env.OTP_EXPIRY_MINUTES, 5),
+  sendgridApiKey: String(process.env.SENDGRID_API_KEY || '').trim(),
+  emailFrom: String(process.env.EMAIL_FROM || process.env.SENDGRID_FROM || '').trim(),
   smtpHost: String(process.env.SMTP_HOST || '').trim(),
   smtpPort: parseNumber(process.env.SMTP_PORT, 587),
   smtpSecure: parseBoolean(process.env.SMTP_SECURE, false),

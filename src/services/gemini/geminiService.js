@@ -77,6 +77,73 @@ const normalizeArray = (value) => {
     .slice(0, 20)
 }
 
+const normalizeSalaryExpectation = (value, fallback = {}) => {
+  const payload = value && typeof value === 'object' ? value : {}
+  const fallbackPayload = fallback && typeof fallback === 'object' ? fallback : {}
+  const currency = String(payload.currency ?? fallbackPayload.currency ?? 'INR')
+    .trim()
+    .toUpperCase()
+  const type = String(payload.type ?? fallbackPayload.type ?? 'LPA').trim()
+  const min = Math.max(0, Number(payload.min ?? fallbackPayload.min ?? 0) || 0)
+  const maxRaw = Math.max(0, Number(payload.max ?? fallbackPayload.max ?? 0) || 0)
+  const max = Math.max(min, maxRaw)
+  return {
+    min,
+    max,
+    currency,
+    type,
+  }
+}
+
+const parseExperienceLabel = (value) => {
+  const numeric = Number(value)
+  if (Number.isFinite(numeric) && numeric >= 0) return numeric
+  const matched = String(value || '').match(/(\d+)\s*\+?\s*(years?|yrs?)/i)
+  return matched ? Number(matched[1]) : 0
+}
+
+const mergeProfileSeed = (baseProfile, profileSeed) => {
+  if (!profileSeed || typeof profileSeed !== 'object') return baseProfile
+
+  const seededSkills = normalizeArray(profileSeed.skills || [])
+  const basePrimary = normalizeArray(baseProfile.primarySkills || [])
+  const baseSecondary = normalizeArray(baseProfile.secondarySkills || [])
+
+  const mergedPrimary = [...new Set([...(basePrimary.length > 0 ? basePrimary : seededSkills.slice(0, 10))])]
+  const mergedSecondary = [
+    ...new Set([
+      ...baseSecondary,
+      ...seededSkills.filter((skill) => !mergedPrimary.includes(skill)),
+    ]),
+  ]
+
+  const mergedExperienceYears = Math.max(
+    Number(baseProfile.experienceYears || 0),
+    parseExperienceLabel(profileSeed.experience),
+  )
+
+  const mergedSalary = normalizeSalaryExpectation(
+    baseProfile.salaryExpectation,
+    profileSeed.package || {},
+  )
+  const seededRole = String(profileSeed.role || '').trim()
+  const seededLocation = String(profileSeed.locationPreference || '').trim()
+  const seededRemote = Boolean(profileSeed.remotePreference)
+  const seededSeniority = String(profileSeed.seniorityLevel || '').trim()
+
+  return {
+    ...baseProfile,
+    role: baseProfile.role || seededRole,
+    primarySkills: mergedPrimary.slice(0, 10),
+    secondarySkills: mergedSecondary.slice(0, 10),
+    experienceYears: mergedExperienceYears,
+    locationPreference: baseProfile.locationPreference || seededLocation,
+    remotePreference: baseProfile.remotePreference || seededRemote,
+    salaryExpectation: mergedSalary,
+    seniorityLevel: baseProfile.seniorityLevel || seededSeniority,
+  }
+}
+
 const normalizeProfile = (rawProfile, fallbackProfile) => {
   return {
     role: String(rawProfile.role ?? fallbackProfile.role ?? '').trim(),
@@ -95,18 +162,10 @@ const normalizeProfile = (rawProfile, fallbackProfile) => {
     remotePreference: Boolean(
       rawProfile.remotePreference ?? fallbackProfile.remotePreference ?? false,
     ),
-    salaryExpectation: {
-      min: Number(rawProfile.salaryExpectation?.min ?? fallbackProfile.salaryExpectation?.min ?? 0),
-      max: Number(rawProfile.salaryExpectation?.max ?? fallbackProfile.salaryExpectation?.max ?? 0),
-      currency: String(
-        rawProfile.salaryExpectation?.currency ??
-          fallbackProfile.salaryExpectation?.currency ??
-          'INR',
-      ).trim(),
-      type: String(
-        rawProfile.salaryExpectation?.type ?? fallbackProfile.salaryExpectation?.type ?? 'LPA',
-      ).trim(),
-    },
+    salaryExpectation: normalizeSalaryExpectation(
+      rawProfile.salaryExpectation,
+      fallbackProfile.salaryExpectation,
+    ),
     seniorityLevel: String(
       rawProfile.seniorityLevel ?? fallbackProfile.seniorityLevel ?? '',
     ).trim(),
@@ -239,39 +298,67 @@ const buildProfileQueryText = (profile) => {
   return terms.length > 0 ? terms.slice(0, 8).join(' ') : 'software engineer'
 }
 
-const allowedJobTypes = new Set([
+const allowedEmploymentTypes = new Set([
   'full-time',
   'internship',
   'contract',
   'part-time',
-  'remote',
+  'temporary',
+  'any',
 ])
+
+const allowedRemotePolicies = new Set(['remote', 'hybrid', 'onsite', 'any'])
+
+const inferEmploymentType = (roleAndSeniority) => {
+  if (/\b(intern|internship|fresher|graduate|entry|new grad)\b/.test(roleAndSeniority)) {
+    return 'internship'
+  }
+  if (/\b(contract|freelance)\b/.test(roleAndSeniority)) return 'contract'
+  if (/\b(part[-\s]?time)\b/.test(roleAndSeniority)) return 'part-time'
+  return 'full-time'
+}
+
+const inferRemotePolicy = (profile) => {
+  const location = String(profile?.locationPreference || '').toLowerCase()
+  if (profile?.remotePreference) return 'remote'
+  if (/\bhybrid\b/i.test(location)) return 'hybrid'
+  if (/\bonsite|on-site\b/i.test(location)) return 'onsite'
+  return 'any'
+}
 
 const buildFallbackSearchIntent = (profile) => {
   const role = String(profile?.role || '').trim() || 'software engineer'
-  const skills = normalizeArray([...(profile?.primarySkills || []), ...(profile?.secondarySkills || [])]).slice(
-    0,
-    14,
-  )
-  const experienceYears = Number(profile?.experienceYears || 0)
-  const experience = experienceYears > 0 ? `${experienceYears}+ years` : 'not specified'
+  const allSkills = normalizeArray([
+    ...(profile?.primarySkills || []),
+    ...(profile?.secondarySkills || []),
+  ]).slice(0, 16)
   const roleAndSeniority = `${role} ${String(profile?.seniorityLevel || '')}`.toLowerCase()
-  const inferredJobType = /\b(intern|internship|fresher|graduate|entry|new grad)\b/.test(roleAndSeniority)
-    ? 'internship'
-    : 'full-time'
+  const locations = normalizeArray(
+    String(profile?.locationPreference || '')
+      .split(/[,/|]/)
+      .map((entry) => entry.trim()),
+  ).slice(0, 5)
+  const experienceYears = Math.max(0, Number(profile?.experienceYears || 0))
   const keywords = normalizeArray([
     role,
-    ...skills,
-    profile?.locationPreference || '',
+    ...allSkills,
+    ...locations,
     profile?.remotePreference ? 'remote' : '',
     profile?.seniorityLevel || '',
-  ]).slice(0, 20)
+  ]).slice(0, 24)
 
   return {
     role,
-    skills,
-    experience,
-    job_type: inferredJobType,
+    mustSkills: allSkills.slice(0, 8),
+    niceSkills: allSkills.slice(8, 16),
+    experienceYears,
+    seniority: String(profile?.seniorityLevel || '').trim(),
+    employmentType: inferEmploymentType(roleAndSeniority),
+    locations,
+    remotePolicy: inferRemotePolicy(profile),
+    compensation: normalizeSalaryExpectation(profile?.salaryExpectation, {}),
+    preferredCompanies: [],
+    excludedTerms: [],
     keywords,
   }
 }
@@ -279,17 +366,48 @@ const buildFallbackSearchIntent = (profile) => {
 const normalizeSearchIntent = (rawIntent, fallbackIntent) => {
   const intent = rawIntent && typeof rawIntent === 'object' ? rawIntent : {}
   const role = String(intent.role ?? fallbackIntent.role ?? '').trim() || fallbackIntent.role
-  const skills = normalizeArray(intent.skills ?? fallbackIntent.skills).slice(0, 16)
-  const experience = String(intent.experience ?? fallbackIntent.experience ?? '').trim() || fallbackIntent.experience
-  const rawJobType = String(intent.job_type ?? fallbackIntent.job_type ?? '').trim().toLowerCase()
-  const jobType = allowedJobTypes.has(rawJobType) ? rawJobType : fallbackIntent.job_type
-  const keywords = normalizeArray(intent.keywords ?? fallbackIntent.keywords).slice(0, 24)
+  const mustSkills = normalizeArray(intent.mustSkills ?? intent.skills ?? fallbackIntent.mustSkills).slice(0, 10)
+  const niceSkills = normalizeArray(intent.niceSkills ?? fallbackIntent.niceSkills).slice(0, 10)
+  const experienceYears = Math.max(
+    0,
+    Number(intent.experienceYears ?? fallbackIntent.experienceYears ?? 0) || 0,
+  )
+  const seniority = String(intent.seniority ?? fallbackIntent.seniority ?? '').trim()
+  const locations = normalizeArray(intent.locations ?? fallbackIntent.locations).slice(0, 6)
+  const rawEmploymentType = String(
+    intent.employmentType ?? intent.job_type ?? fallbackIntent.employmentType ?? 'any',
+  )
+    .trim()
+    .toLowerCase()
+  const employmentType = allowedEmploymentTypes.has(rawEmploymentType)
+    ? rawEmploymentType
+    : fallbackIntent.employmentType
+  const rawRemotePolicy = String(intent.remotePolicy ?? fallbackIntent.remotePolicy ?? 'any')
+    .trim()
+    .toLowerCase()
+  const remotePolicy = allowedRemotePolicies.has(rawRemotePolicy)
+    ? rawRemotePolicy
+    : fallbackIntent.remotePolicy
+  const compensation = normalizeSalaryExpectation(intent.compensation, fallbackIntent.compensation)
+  const preferredCompanies = normalizeArray(intent.preferredCompanies ?? fallbackIntent.preferredCompanies).slice(
+    0,
+    8,
+  )
+  const excludedTerms = normalizeArray(intent.excludedTerms ?? fallbackIntent.excludedTerms).slice(0, 12)
+  const keywords = normalizeArray(intent.keywords ?? fallbackIntent.keywords).slice(0, 26)
 
   return {
     role,
-    skills,
-    experience,
-    job_type: jobType,
+    mustSkills,
+    niceSkills,
+    experienceYears,
+    seniority,
+    employmentType,
+    locations,
+    remotePolicy,
+    compensation,
+    preferredCompanies,
+    excludedTerms,
     keywords,
   }
 }
@@ -303,18 +421,24 @@ const joinQueryParts = (parts) =>
 
 const buildQueryVariantsFromIntent = (intent, limit = 8) => {
   const role = String(intent?.role || '').trim() || 'software engineer'
-  const skills = normalizeArray(intent?.skills || []).slice(0, 6)
+  const skills = normalizeArray([...(intent?.mustSkills || []), ...(intent?.niceSkills || [])]).slice(0, 6)
   const keywords = normalizeArray(intent?.keywords || []).slice(0, 10)
-  const experience = String(intent?.experience || '').trim()
-  const jobType = String(intent?.job_type || '').trim()
-  const jobTypeToken = jobType === 'full-time' ? '' : jobType
+  const experienceYears = Math.max(0, Number(intent?.experienceYears || 0))
+  const experience = experienceYears > 0 ? `${experienceYears}+ years` : ''
+  const employmentType = String(intent?.employmentType || '').trim()
+  const employmentTypeToken = employmentType === 'full-time' || employmentType === 'any' ? '' : employmentType
+  const remotePolicy = String(intent?.remotePolicy || '').trim()
+  const remoteToken = remotePolicy === 'any' ? '' : remotePolicy
+  const location = normalizeArray(intent?.locations || []).slice(0, 2).join(' ')
+  const excludedTerms = normalizeArray(intent?.excludedTerms || []).slice(0, 2).join(' ')
 
   const variants = [
-    joinQueryParts([role, ...skills.slice(0, 3), keywords[0]]),
+    joinQueryParts([role, ...skills.slice(0, 3), location, remoteToken]),
     joinQueryParts([role, ...skills.slice(0, 2), experience]),
     joinQueryParts([role, ...keywords.slice(0, 5)]),
-    joinQueryParts([role, jobTypeToken, ...skills.slice(0, 2)]),
+    joinQueryParts([role, employmentTypeToken, ...skills.slice(0, 2)]),
     joinQueryParts([role, ...skills.slice(0, 3)]),
+    joinQueryParts([role, location, excludedTerms ? `not ${excludedTerms}` : '']),
     joinQueryParts([role]),
   ]
 
@@ -339,16 +463,25 @@ You are a job search intent extractor.
 Return ONLY valid JSON with this exact shape:
 {
   "role": "",
-  "skills": ["..."],
-  "experience": "",
-  "job_type": "",
+  "mustSkills": ["..."],
+  "niceSkills": ["..."],
+  "experienceYears": 0,
+  "seniority": "",
+  "employmentType": "",
+  "locations": ["..."],
+  "remotePolicy": "",
+  "compensation": { "min": 0, "max": 0, "currency": "INR", "type": "LPA" },
+  "preferredCompanies": ["..."],
+  "excludedTerms": ["..."],
   "keywords": ["..."]
 }
 
 Rules:
-- "job_type" must be one of: "full-time", "internship", "contract", "part-time", "remote".
-- "skills" should include concrete technologies only.
-- "keywords" should include high-signal search terms for scraping.
+- "employmentType" must be one of: "full-time", "internship", "contract", "part-time", "temporary", "any".
+- "remotePolicy" must be one of: "remote", "hybrid", "onsite", "any".
+- "mustSkills" should contain non-negotiable skills only.
+- "niceSkills" should contain adjacent optional skills.
+- "keywords" should include high-signal search terms for scraping and ATS.
 - Keep "keywords" concise and deduplicated.
 - No markdown. No explanation. No extra keys.
 
@@ -367,6 +500,7 @@ ${JSON.stringify(profile)}
         locationPreference: profile?.locationPreference || '',
         remotePreference: Boolean(profile?.remotePreference),
         seniorityLevel: profile?.seniorityLevel || '',
+        salaryExpectation: normalizeSalaryExpectation(profile?.salaryExpectation, {}),
       },
     },
     promptPayload,
@@ -376,8 +510,11 @@ ${JSON.stringify(profile)}
   const normalizedIntent = normalizeSearchIntent(parsed, fallbackIntent)
   debugLog('search intent prepared', {
     role: normalizedIntent.role,
-    skillCount: normalizedIntent.skills.length,
-    jobType: normalizedIntent.job_type,
+    mustSkillCount: normalizedIntent.mustSkills.length,
+    niceSkillCount: normalizedIntent.niceSkills.length,
+    employmentType: normalizedIntent.employmentType,
+    remotePolicy: normalizedIntent.remotePolicy,
+    locationCount: normalizedIntent.locations.length,
     keywordCount: normalizedIntent.keywords.length,
   })
   return normalizedIntent
@@ -474,7 +611,7 @@ const generateJsonWithGemini = async ({ promptPayload, label }) => {
   return parseGeminiJson(text)
 }
 
-export const buildPreferenceProfile = async ({ prompt, resumeText }) => {
+export const buildPreferenceProfile = async ({ prompt, resumeText, profileSeed = null }) => {
   if (!vertexClient) {
     throw new Error(
       'Vertex AI is not configured. Set VERTEX_PROJECT_ID and GOOGLE_APPLICATION_CREDENTIALS.',
@@ -482,7 +619,8 @@ export const buildPreferenceProfile = async ({ prompt, resumeText }) => {
   }
 
   const heuristicProfile = buildHeuristicStructuredProfile({ prompt, resumeText })
-  const fallbackProfile = normalizeProfile(heuristicProfile, defaultStructuredProfile)
+  const seededHeuristicProfile = mergeProfileSeed(heuristicProfile, profileSeed)
+  const fallbackProfile = normalizeProfile(seededHeuristicProfile, defaultStructuredProfile)
 
   try {
     const start = Date.now()
@@ -511,6 +649,7 @@ Strictly no markdown, no explanation, no extra keys.
       instruction,
       `User Prompt: ${prompt}`,
       `Resume Text (trimmed): ${resumeText.slice(0, 5000) || 'N/A'}`,
+      `Persisted Profile Seed: ${JSON.stringify(profileSeed || {})}`,
     ].join('\n\n')
 
     const parsed = await generateJsonWithGemini({
@@ -615,6 +754,8 @@ Rules:
 - Include a mix of global, India, and remote-friendly sources.
 - Include ATS engines (Greenhouse, Lever, Workday) + startup boards + company career pages.
 - Use the structured SearchIntent and provided query variants.
+- Prioritize SearchIntent.mustSkills and SearchIntent.locations when composing URLs.
+- Respect SearchIntent.excludedTerms and avoid those in query construction.
 - Ensure URL query parameters are aligned to the query variants where applicable.
 - Avoid duplicates and low-quality/non-job URLs.
 - Prefer high-signal sources likely to return engineering jobs quickly.

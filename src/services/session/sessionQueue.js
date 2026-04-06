@@ -95,12 +95,17 @@ export const enqueueSessionProcessing = async (payload) => {
   try {
     const queue = ensureProducerQueue()
     ensureQueueEvents()
+    const normalizedProfileSeed =
+      payload?.profileSeed && typeof payload.profileSeed === 'object'
+        ? payload.profileSeed
+        : null
     const job = await queue.add(
       'process-session',
       {
         sessionId,
         prompt: String(payload?.prompt || ''),
         resumeText: String(payload?.resumeText || ''),
+        profileSeed: normalizedProfileSeed,
       },
       {
         jobId: sessionId,
@@ -180,10 +185,13 @@ export const startSessionQueueWorker = async ({ force = false } = {}) => {
     env.sessionQueueName,
     async (job) => {
       const data = job?.data || {}
+      const normalizedProfileSeed =
+        data.profileSeed && typeof data.profileSeed === 'object' ? data.profileSeed : null
       await processSessionInBackground({
         sessionId: String(data.sessionId || ''),
         prompt: String(data.prompt || ''),
         resumeText: String(data.resumeText || ''),
+        profileSeed: normalizedProfileSeed,
       })
     },
     {

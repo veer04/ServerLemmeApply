@@ -4,12 +4,21 @@ import jwt from 'jsonwebtoken'
 import mongoose from 'mongoose'
 import { OAuth2Client } from 'google-auth-library'
 import { env } from '../config/environment.js'
+import { OtpChallenge } from '../models/Otp.js'
 import { User, toSafeUser } from '../models/User.js'
 import { UserProfile } from '../models/UserProfile.js'
 import { sendOtpEmail } from '../services/auth/otpMailer.js'
+import { generateOtpCode as generateOtpCodeUtil } from '../utils/auth/generateOtp.js'
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const otpPattern = /^\d{6}$/
+const OTP_PURPOSE = {
+  SIGNUP: 'signup',
+  LOGIN: 'login',
+  PASSWORD_RESET: 'password_reset',
+}
+const OTP_RESEND_COOLDOWN_SECONDS = 20
+const OTP_MAX_ATTEMPTS = 5
 
 const googleOauthClient = env.googleClientId ? new OAuth2Client(env.googleClientId) : null
 
@@ -85,6 +94,352 @@ const validateLoginPayload = ({ email, password }) => {
 
   if (!String(password || '')) {
     throwHttpError('Password is required.')
+  }
+}
+
+const validatePasswordResetPayload = ({ password, confirmPassword }) => {
+  if (String(password || '').length < 8) {
+    throwHttpError('Password must be at least 8 characters.')
+  }
+
+  if (String(password || '').length > 72) {
+    throwHttpError('Password must be at most 72 characters.')
+  }
+
+  if (String(password || '') !== String(confirmPassword || '')) {
+    throwHttpError('Password and confirm password do not match.')
+  }
+}
+
+const issueOtpChallenge = async ({ email, purpose, name = '', metadata = null }) => {
+  const normalizedEmail = normalizeEmail(email)
+  const existing = await OtpChallenge.findOne({
+    email: normalizedEmail,
+    purpose,
+  }).select('createdAt')
+
+  if (existing?.createdAt) {
+    const ageSeconds = Math.floor((Date.now() - new Date(existing.createdAt).getTime()) / 1000)
+    if (ageSeconds >= 0 && ageSeconds < OTP_RESEND_COOLDOWN_SECONDS) {
+      throwHttpError(
+        `Please wait ${OTP_RESEND_COOLDOWN_SECONDS - ageSeconds}s before requesting another OTP.`,
+        429,
+      )
+    }
+  }
+
+  const otpCode = generateOtpCodeUtil()
+  const otpHash = await bcrypt.hash(otpCode, 12)
+  const expiresAt = new Date(Date.now() + env.otpExpiryMinutes * 60 * 1000)
+
+  await OtpChallenge.findOneAndUpdate(
+    { email: normalizedEmail, purpose },
+    {
+      $set: {
+        otpHash,
+        expiresAt,
+        attemptCount: 0,
+        metadata: metadata || null,
+      },
+    },
+    {
+      upsert: true,
+      new: true,
+      setDefaultsOnInsert: true,
+    },
+  )
+
+  await sendOtpEmail({
+    name,
+    email: normalizedEmail,
+    otpCode,
+    expiresInMinutes: env.otpExpiryMinutes,
+  })
+
+  return {
+    expiresAt,
+    otpDebugCode: env.nodeEnv !== 'production' ? otpCode : '',
+  }
+}
+
+const verifyOtpChallenge = async ({ email, purpose, otpCode }) => {
+  const normalizedEmail = normalizeEmail(email)
+  const challenge = await OtpChallenge.findOne({
+    email: normalizedEmail,
+    purpose,
+  })
+
+  if (!challenge) {
+    throwHttpError('No OTP is pending for this email and action.')
+  }
+
+  if (new Date(challenge.expiresAt).getTime() < Date.now()) {
+    await OtpChallenge.deleteOne({ _id: challenge._id })
+    throwHttpError('OTP has expired. Please request a new code.')
+  }
+
+  const isOtpValid = await bcrypt.compare(String(otpCode || ''), challenge.otpHash)
+  if (!isOtpValid) {
+    const nextAttempts = Number(challenge.attemptCount || 0) + 1
+    if (nextAttempts >= OTP_MAX_ATTEMPTS) {
+      await OtpChallenge.deleteOne({ _id: challenge._id })
+      throwHttpError('OTP attempts exceeded. Please request a new code.', 429)
+    }
+    challenge.attemptCount = nextAttempts
+    await challenge.save()
+    throwHttpError('Invalid OTP code.')
+  }
+
+  await OtpChallenge.deleteOne({ _id: challenge._id })
+  return challenge
+}
+
+export const sendOtpForSignup = async (request, response, next) => {
+  try {
+    const { name, email, password, confirmPassword } = request.body || {}
+    validateSignupPayload({ name, email, password, confirmPassword })
+
+    const normalizedEmail = normalizeEmail(email)
+    const normalizedName = normalizeName(name)
+
+    const existingUser = await User.findOne({ email: normalizedEmail })
+    if (existingUser?.isVerified && existingUser.authProviders?.emailPassword) {
+      throwHttpError('An account with this email already exists.', 409)
+    }
+    if (
+      existingUser?.isVerified &&
+      !existingUser.authProviders?.emailPassword &&
+      existingUser.authProviders?.google
+    ) {
+      throwHttpError('This email is already registered with Google login. Use Google sign in.', 409)
+    }
+
+    const passwordHash = await bcrypt.hash(String(password), 12)
+    const challenge = await issueOtpChallenge({
+      email: normalizedEmail,
+      purpose: OTP_PURPOSE.SIGNUP,
+      name: normalizedName,
+      metadata: {
+        name: normalizedName,
+        passwordHash,
+      },
+    })
+
+    response.status(200).json({
+      message: 'OTP sent for signup verification.',
+      email: normalizedEmail,
+      otpExpiresInSeconds: env.otpExpiryMinutes * 60,
+      ...(challenge.otpDebugCode ? { otpDebugCode: challenge.otpDebugCode } : {}),
+    })
+  } catch (error) {
+    next(error)
+  }
+}
+
+export const verifyOtpSignup = async (request, response, next) => {
+  try {
+    const normalizedEmail = normalizeEmail(request.body?.email)
+    const otpCode = String(request.body?.otp || '').trim()
+
+    if (!normalizedEmail || !emailPattern.test(normalizedEmail)) {
+      throwHttpError('Valid email is required.')
+    }
+    if (!otpPattern.test(otpCode)) {
+      throwHttpError('OTP must be a 6-digit code.')
+    }
+
+    const challenge = await verifyOtpChallenge({
+      email: normalizedEmail,
+      purpose: OTP_PURPOSE.SIGNUP,
+      otpCode,
+    })
+
+    const signupMetadata = challenge.metadata || {}
+    const name = normalizeName(signupMetadata.name)
+    const passwordHash = String(signupMetadata.passwordHash || '').trim()
+    if (!name || !passwordHash) {
+      throwHttpError('Signup session expired. Please restart signup.', 400)
+    }
+
+    const existingUser = await User.findOne({ email: normalizedEmail })
+    if (
+      existingUser?.isVerified &&
+      !existingUser.authProviders?.emailPassword &&
+      existingUser.authProviders?.google
+    ) {
+      throwHttpError('This email is already registered with Google login. Use Google sign in.', 409)
+    }
+    if (existingUser?.isVerified && existingUser.authProviders?.emailPassword) {
+      throwHttpError('An account with this email already exists.', 409)
+    }
+
+    const user = existingUser || new User({ email: normalizedEmail, name })
+    user.name = name
+    user.passwordHash = passwordHash
+    user.isVerified = true
+    user.authProviders = {
+      emailPassword: true,
+      google: Boolean(existingUser?.authProviders?.google),
+    }
+    user.lastLoginAt = new Date()
+    await user.save()
+    await ensureLinkedUserProfile(user._id)
+
+    const token = createAuthToken(user)
+    response.status(201).json({
+      message: 'Signup verified successfully.',
+      token,
+      user: toSafeUser(user),
+    })
+  } catch (error) {
+    next(error)
+  }
+}
+
+export const sendOtpForLogin = async (request, response, next) => {
+  try {
+    const normalizedEmail = normalizeEmail(request.body?.email)
+    if (!normalizedEmail || !emailPattern.test(normalizedEmail)) {
+      throwHttpError('Valid email is required.')
+    }
+
+    const user = await User.findOne({ email: normalizedEmail })
+    if (!user || !user.isVerified) {
+      throwHttpError('Account not found or not verified.', 404)
+    }
+
+    const challenge = await issueOtpChallenge({
+      email: normalizedEmail,
+      purpose: OTP_PURPOSE.LOGIN,
+      name: user.name,
+    })
+
+    response.status(200).json({
+      message: 'OTP sent for login.',
+      email: normalizedEmail,
+      otpExpiresInSeconds: env.otpExpiryMinutes * 60,
+      ...(challenge.otpDebugCode ? { otpDebugCode: challenge.otpDebugCode } : {}),
+    })
+  } catch (error) {
+    next(error)
+  }
+}
+
+export const verifyOtpLogin = async (request, response, next) => {
+  try {
+    const normalizedEmail = normalizeEmail(request.body?.email)
+    const otpCode = String(request.body?.otp || '').trim()
+
+    if (!normalizedEmail || !emailPattern.test(normalizedEmail)) {
+      throwHttpError('Valid email is required.')
+    }
+    if (!otpPattern.test(otpCode)) {
+      throwHttpError('OTP must be a 6-digit code.')
+    }
+
+    const user = await User.findOne({ email: normalizedEmail })
+    if (!user || !user.isVerified) {
+      throwHttpError('Account not found or not verified.', 404)
+    }
+
+    await verifyOtpChallenge({
+      email: normalizedEmail,
+      purpose: OTP_PURPOSE.LOGIN,
+      otpCode,
+    })
+
+    user.lastLoginAt = new Date()
+    await user.save()
+    await ensureLinkedUserProfile(user._id)
+
+    const token = createAuthToken(user)
+    response.status(200).json({
+      message: 'Login verified successfully.',
+      token,
+      user: toSafeUser(user),
+    })
+  } catch (error) {
+    next(error)
+  }
+}
+
+export const forgotPassword = async (request, response, next) => {
+  try {
+    const normalizedEmail = normalizeEmail(request.body?.email)
+    if (!normalizedEmail || !emailPattern.test(normalizedEmail)) {
+      throwHttpError('Valid email is required.')
+    }
+
+    const user = await User.findOne({ email: normalizedEmail })
+    if (!user) {
+      response.status(200).json({
+        message: 'If an account exists with this email, OTP has been sent.',
+        email: normalizedEmail,
+      })
+      return
+    }
+
+    const challenge = await issueOtpChallenge({
+      email: normalizedEmail,
+      purpose: OTP_PURPOSE.PASSWORD_RESET,
+      name: user.name,
+    })
+
+    response.status(200).json({
+      message: 'Password reset OTP sent to your email.',
+      email: normalizedEmail,
+      otpExpiresInSeconds: env.otpExpiryMinutes * 60,
+      ...(challenge.otpDebugCode ? { otpDebugCode: challenge.otpDebugCode } : {}),
+    })
+  } catch (error) {
+    next(error)
+  }
+}
+
+export const resetPassword = async (request, response, next) => {
+  try {
+    const normalizedEmail = normalizeEmail(request.body?.email)
+    const otpCode = String(request.body?.otp || '').trim()
+    const password = String(request.body?.password || '')
+    const confirmPassword = String(request.body?.confirmPassword || '')
+
+    if (!normalizedEmail || !emailPattern.test(normalizedEmail)) {
+      throwHttpError('Valid email is required.')
+    }
+    if (!otpPattern.test(otpCode)) {
+      throwHttpError('OTP must be a 6-digit code.')
+    }
+    validatePasswordResetPayload({ password, confirmPassword })
+
+    const user = await User.findOne({ email: normalizedEmail })
+    if (!user) {
+      throwHttpError('No account found for this email.', 404)
+    }
+
+    await verifyOtpChallenge({
+      email: normalizedEmail,
+      purpose: OTP_PURPOSE.PASSWORD_RESET,
+      otpCode,
+    })
+
+    user.passwordHash = await bcrypt.hash(password, 12)
+    user.isVerified = true
+    user.authProviders = {
+      emailPassword: true,
+      google: Boolean(user.authProviders?.google),
+    }
+    user.lastLoginAt = new Date()
+    await user.save()
+    await ensureLinkedUserProfile(user._id)
+
+    const token = createAuthToken(user)
+    response.status(200).json({
+      message: 'Password reset successful.',
+      token,
+      user: toSafeUser(user),
+    })
+  } catch (error) {
+    next(error)
   }
 }
 

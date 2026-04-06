@@ -193,7 +193,8 @@ export const buildMatchedJobs = async ({ rawJobs, profile }) => {
     distribution: buildScoreDistribution(scoredJobs.map((job) => Number(job.matchScore || 0))),
   })
 
-  const shortScored = scoredJobs.slice(0, 40)
+  const shortlistLimit = Math.min(60, Math.max(24, Math.round(scoredJobs.length * 0.72)))
+  const shortScored = scoredJobs.slice(0, shortlistLimit)
   const aiFiltered = await filterJobsWithAI({
     profile,
     jobs: shortScored,
@@ -209,6 +210,7 @@ export const buildMatchedJobs = async ({ rawJobs, profile }) => {
   const filteredJobs = dedupeJobs(reranked).filter(isMeaningfulMatchedJob).slice(0, 12)
   debugLog('post-ai pipeline summary', {
     scoredJobs: scoredJobs.length,
+    shortlistLimit,
     shortScored: shortScored.length,
     relevantCandidates: relevantCandidates.length,
     reranked: reranked.length,

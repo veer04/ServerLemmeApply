@@ -188,6 +188,8 @@ const STOPWORDS = new Set(
   ].map((word) => normalizeSkill(word)),
 )
 
+const SHORT_SKILL_TOKENS = new Set(['go', 'c', 'r', 'ai', 'ml', 'qa', 'ui', 'ux', 'nlp', 'cv'])
+
 const normalizeText = (value) =>
   String(value || '')
     .toLowerCase()
@@ -216,7 +218,37 @@ const tokenize = (value) =>
     .toLowerCase()
     .split(/[^a-z0-9+.]/)
     .map((part) => part.trim())
-    .filter((part) => part.length > 2)
+    .filter((part) => part.length > 2 || SHORT_SKILL_TOKENS.has(part))
+
+const currencyToInr = (amount, currency) => {
+  const numeric = Number(amount || 0)
+  if (!Number.isFinite(numeric) || numeric <= 0) return 0
+  const normalizedCurrency = String(currency || 'INR').trim().toUpperCase()
+  if (normalizedCurrency === 'USD') return numeric * 83
+  if (normalizedCurrency === 'EUR') return numeric * 90
+  if (normalizedCurrency === 'GBP') return numeric * 105
+  return numeric
+}
+
+const normalizeCompensationToLpa = ({ amount, currency = 'INR', type = 'LPA' }) => {
+  const numeric = Number(amount || 0)
+  if (!Number.isFinite(numeric) || numeric <= 0) return 0
+
+  const normalizedType = String(type || 'LPA').toLowerCase()
+  if (/lpa|lakh/.test(normalizedType)) {
+    const yearlyInr = currencyToInr(numeric * 100000, currency)
+    return yearlyInr / 100000
+  }
+
+  if (/monthly|month/.test(normalizedType)) {
+    const yearlyInr = currencyToInr(numeric * 12, currency)
+    return yearlyInr / 100000
+  }
+
+  // Treat yearly/annual/CTC as yearly amount in selected currency.
+  const yearlyInr = currencyToInr(numeric, currency)
+  return yearlyInr / 100000
+}
 
 const bagOfWords = (tokens) => {
   const bag = new Map()
@@ -276,7 +308,7 @@ const parseSalaryLpa = (salaryText) => {
     return numeric
   }
 
-  const currencyToInr = (amount, currency) => {
+  const convertCurrencyToInr = (amount, currency) => {
     if (!amount) return null
     if (currency === 'usd') return amount * 83
     if (currency === 'eur') return amount * 90
@@ -287,7 +319,7 @@ const parseSalaryLpa = (salaryText) => {
   const convertYearlyForeignToLpa = (match, currency) => {
     if (!match) return null
     const yearlyAmount = normalizeLargeUnit(match[2], match[4])
-    const inrAmount = currencyToInr(yearlyAmount, currency)
+    const inrAmount = convertCurrencyToInr(yearlyAmount, currency)
     if (!inrAmount) return null
     return inrAmount / 100000
   }
@@ -368,6 +400,19 @@ export const buildProfileText = (profile) => {
       ? `${Number(profile.experienceYears)} years experience`
       : '',
   ])
+  const locationText = joinTextParts([
+    profile.locationPreference,
+    profile.remotePreference ? 'remote preferred' : '',
+  ])
+  const compensationText = joinTextParts([
+    Number(profile.salaryExpectation?.min || 0)
+      ? `${Number(profile.salaryExpectation.min)} ${String(profile.salaryExpectation?.type || 'LPA')}`
+      : '',
+    Number(profile.salaryExpectation?.max || 0)
+      ? `${Number(profile.salaryExpectation.max)} ${String(profile.salaryExpectation?.type || 'LPA')}`
+      : '',
+    String(profile.salaryExpectation?.currency || 'INR'),
+  ])
 
   return joinTextParts([
     roleText,
@@ -375,6 +420,8 @@ export const buildProfileText = (profile) => {
     `primary skills ${primarySkillsText}`,
     `secondary skills ${secondarySkillsText}`,
     experienceText,
+    locationText,
+    compensationText,
   ])
 }
 
@@ -382,13 +429,19 @@ export const buildJobText = (job) => {
   if (!job) return ''
 
   const titleText = joinTextParts([job.title, job.role])
+  const companyText = joinTextParts([job.company])
+  const locationText = joinTextParts([job.location, job.workMode])
+  const compensationText = joinTextParts([job.salary])
   const descriptionText = joinTextParts([job.description, job.summary, job.responsibilities])
   const requiredSkillsText = joinTextParts(job.skillsRequired || job.requiredSkills || [])
 
   return joinTextParts([
     titleText,
+    companyText,
+    locationText,
     descriptionText,
     `required skills ${requiredSkillsText}`,
+    `compensation ${compensationText}`,
   ])
 }
 
@@ -529,8 +582,18 @@ const locationAlignment = (job, profile) => {
 
 const salaryAlignment = (job, profile) => {
   const expected = profile.salaryExpectation || {}
-  const expectedMin = Number(expected.min || 0)
-  const expectedMax = Number(expected.max || 0)
+  const expectedCurrency = String(expected.currency || 'INR').toUpperCase()
+  const expectedType = String(expected.type || 'LPA')
+  const expectedMin = normalizeCompensationToLpa({
+    amount: expected.min,
+    currency: expectedCurrency,
+    type: expectedType,
+  })
+  const expectedMax = normalizeCompensationToLpa({
+    amount: expected.max,
+    currency: expectedCurrency,
+    type: expectedType,
+  })
   if (!expectedMin && !expectedMax) return 0.62
 
   const offered = parseSalaryLpa(job.salary)

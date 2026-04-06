@@ -108,6 +108,28 @@ const buildStoredProfileContext = (profileDocument) => {
   return lines.join('\n')
 }
 
+const parseExperienceYearsFromLabel = (value) => {
+  const matched = String(value || '').match(/(\d+)\s*\+?\s*(years?|yrs?)/i)
+  return matched ? Number(matched[1]) : 0
+}
+
+const buildProfileSeed = (profileDocument) => {
+  if (!profileDocument) return null
+
+  const packageData = profileDocument.package || {}
+  return {
+    primarySkills: Array.isArray(profileDocument.skills) ? profileDocument.skills.slice(0, 10) : [],
+    secondarySkills: [],
+    experienceYears: parseExperienceYearsFromLabel(profileDocument.experience),
+    salaryExpectation: {
+      min: Math.max(0, Number(packageData.min || 0)),
+      max: Math.max(0, Number(packageData.max || 0)),
+      currency: String(packageData.currency || 'INR').toUpperCase(),
+      type: String(packageData.type || 'LPA'),
+    },
+  }
+}
+
 export const createChatSession = async (request, response, next) => {
   try {
     if (!env.vertexProject) {
@@ -132,6 +154,7 @@ export const createChatSession = async (request, response, next) => {
     const userId = toObjectId(request.user?.userId, 'userId')
     const storedProfile = await UserProfile.findOne({ userId }).lean()
     const storedProfileContext = buildStoredProfileContext(storedProfile)
+    const profileSeed = buildProfileSeed(storedProfile)
 
     const resumeText = await extractResumeText(request.file)
     const enrichedPrompt = [
@@ -186,6 +209,7 @@ export const createChatSession = async (request, response, next) => {
       sessionId,
       prompt: enrichedPrompt,
       resumeText,
+      profileSeed,
     })
 
     response.status(201).json({
