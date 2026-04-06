@@ -1,7 +1,17 @@
 import { chromium } from 'playwright'
 import { env } from '../../config/environment.js'
 import { discoverJobSourcesWithGemini } from '../gemini/geminiService.js'
-import { getLearnedSourcesForProfile } from './sourceMemoryStore.js'
+import { discoverCompanyCareerPages } from '../companyDiscovery/companyDiscoveryService.js'
+import {
+  detectAtsType,
+  isAtsUrl,
+  scrapeJobsFromAts,
+} from '../scraper/atsHandler.js'
+import {
+  getLearnedSourceMetrics,
+  getLearnedSourcesForProfile,
+  recordSourceTelemetryBatch,
+} from './sourceMemoryStore.js'
 
 const debugLog = (message, context = {}) => {
   if (!env.jobDebugEnabled) return
@@ -41,6 +51,7 @@ const defaultTargets = [
   'https://search.jobs.barclays/job-search-results/?keywords={query}',
   'https://adobe.wd5.myworkdayjobs.com/en-US/external_experienced?q={query}',
 
+
   // Indian IT / Enterprise
   'https://www.tcs.com/careers/search-results?q={query}',
   'https://www.infosys.com/careers/job-opportunities/?keyword={query}',
@@ -72,6 +83,75 @@ const defaultTargets = [
   'https://www.tesla.com/careers/search/?query={query}',
   'https://www.bmwgroup.jobs/en/jobfinder/jobfinder.html?search={query}',
   'https://www.volvogroup.com/en/careers/job-search.html?search={query}',
+  'https://jobs.iqvia.com/en/jobs?search={query}',
+  'https://jobs.ashbyhq.com/netgear',
+  'https://careers.gehealthcare.com/global/en/search-results',
+  'https://clearwateranalytics.wd1.myworkdayjobs.com/en-US/Clearwater_Analytics_Careers?source=LinkedIn',
+  'https://ibqbjb.fa.ocs.oraclecloud.com/en/sites/HoneywellCareerSite/jobs?mode=location',
+  'https://kla.wd1.myworkdayjobs.com/Search?_ga=2.97096991.1275030734.1775459302-9188483.1775459302&_gl=1*p2flcc*_gcl_au*MTMyNjY2Njk4Ni4xNzc1NDU5MzAy*_ga*OTE4ODQ4My4xNzc1NDU5MzAy*_ga_TZPEFM1MF5*czE3NzU0NTkzMDIkbzEkZzAkdDE3NzU0NTkzMDIkajYwJGwwJGgw',
+  'https://www.merck.com/careers/search-results?keywords={query}',
+  'https://www.roche.com/careers/search-results?keywords={query}',
+  'https://www.pfizer.com/careers/search-results?keywords={query}',
+  'https://www.novartis.com/careers/search-results?keywords={query}',
+  'https://www.sanofi.com/careers/search-results?keywords={query}',
+  'https://www.astrazeneca.com/careers/search-results?keywords={query}',
+  'https://www.boehringer-ingelheim.com/careers/search-results?keywords={query}',
+  'https://www.bayer.com/careers/search-results?keywords={query}',
+ 'https://clients.njoyn.com/corp/xweb/xweb.asp?NTKN=c&page=jobmatches&txtJobId=J0326-1434&clid=21001&jid=1460276',
+ 'https://jobs.njoyn.com/search?q={query}',
+ 'https://jobs.standardchartered.com/go/Experienced-Professional-jobs/9783657/?&feedid=363857',
+ 'https://jobs.standardchartered.com/go/Early-careers-Jobs/9783557/?&feedid=363857',
+ 'https://careers.micron.com/careers?utm_source=linkedin&domain=micron.com&src=JB-12600&start=0&pid=40535385&sort_by=hot',
+
+ 'https://careers.netapp.com/search-jobs',
+ 'https://silabs.wd1.myworkdayjobs.com/en-US/SiliconlabsCareers?source=LinkedIn',
+ 'https://careers.pypl.com/home/',
+ 'https://www.accenture.com/in-en/careers/jobsearch',
+ 'https://www.accenture.com/in-en/careers/jobsearch?jt=Experience%3A%205-10%20years',
+ 'https://www.accenture.com/in-en/careers/jobsearch?jt=Experience%3A%2010-12%20years%7CExperience%3A%2012-14%20years',
+ 'https://careers.mphasis.com/home/hot-jobs/location-search/india.html',
+ 'https://mphasis.ripplehire.com/candidate/?token=ty4DfyWddnOrtpclQeia&source=CAREERSITE#list/function=Business%20Process%20Services%20(BPS)&geo=IND',
+ 'https://mphasis.ripplehire.com/candidate/?token=ty4DfyWddnOrtpclQeia&source=CAREERSITE#list/function=Infrastructure%20Services&geo=IND',
+ 'https://mphasis.ripplehire.com/candidate/?token=ty4DfyWddnOrtpclQeia&source=CAREERSITE#list/function=IT%20Application%20Services&geo=USA',
+ 'https://mphasis.ripplehire.com/candidate/?token=ty4DfyWddnOrtpclQeia&source=CAREERSITE#list/function=Infrastructure%20Services&geo=USA',  
+ 'https://mphasis.ripplehire.com/candidate/?token=ty4DfyWddnOrtpclQeia&source=CAREERSITE#list/function=Business%20Process%20Services%20(BPS)&geo=USA',    
+ 'https://mphasis.ripplehire.com/candidate/?token=ty4DfyWddnOrtpclQeia&source=CAREERSITE#list/function=IT%20Application%20Services&geo=EUR',
+ 'https://mphasis.ripplehire.com/candidate/?token=ty4DfyWddnOrtpclQeia&source=CAREERSITE#list/function=Infrastructure%20Services&geo=EUR',
+ 'https://mphasis.ripplehire.com/candidate/?token=ty4DfyWddnOrtpclQeia&source=CAREERSITE#list/function=Business%20Process%20Services%20(BPS)&geo=EUR',
+ 'https://higher.gs.com/results?&page=1&search=software%20engineering&sort=RELEVANCE',
+ 'https://higher.gs.com/results?&page=1&sort=RELEVANCE',
+ 'https://careers.swiggy.com/#/careers?career_page_category=Technology',
+ 'https://www.globallogic.com/careers/search-results?keywords={query}',
+ 'https://www.globallogic.com/careers/search-results?keywords={query}&location=United%20States',
+ 'https://www.globallogic.com/careers/search-results?keywords={query}&location=United%20States&experience=5-10%20years',
+ 'https://www.globallogic.com/careers/search-results?keywords={query}&location=United%20States&experience=10-12%20years%7Cexperience=12-14%20years',
+ 'https://www.globallogic.com/careers/search-results?keywords={query}&location=United%20States&experience=10-12%20years%7Cexperience=12-14%20years&job_type=Full-time&sort_by=RELEVANCE   ',  
+ 'https://www.globallogic.com/careers/search-results?keywords={query}&location=United%20States&experience=10-12%20years%7Cexperience=12-14%20years&job_type=Full-time&sort_by=RELEVANCE',  
+ 'https://www.globallogic.com/careers/search-results?keywords={query}&location=United%20States&experience=10-12%20years%7Cexperience=12-14%20years&job_type=Full-time&sort_by=RELEVANCE&page=2',  
+ 'https://www.globallogic.com/careers/search-results?keywords={query}&location=United%20States&experience=10-12%20years%7Cexperience=12-14%20years&job_type=Full-time&sort_by=RELEVANCE&page=3',  
+ 'https://www.globallogic.com/careers/search-results?keywords={query}&location=United%20States&experience=10-12%20years%7Cexperience=12-14%20years&job_type=Full-time&sort_by=RELEVANCE&page=4',  
+ 'https://www.globallogic.com/careers/search-results?keywords={query}&location=United%20States&experience=10-12%20years%7Cexperience=12-14%20years&job_type=Full-time&sort_by=RELEVANCE&page=5',  
+ 'https://www.globallogic.com/careers/search-results?keywords={query}&location=United%20States&experience=10-12%20years%7Cexperience=12-14%20years&job_type=Full-time&sort_by=RELEVANCE&page=6',  
+ 'https://www.globallogic.com/careers/search-results?keywords={query}&location=United%20States&experience=10-12%20years%7Cexperience=12-14%20years&job_type=Full-time&sort_by=RELEVANCE&page=7',  
+ 'https://www.globallogic.com/careers/search-results?keywords={query}&location=United%20States&experience=10-12%20years%7Cexperience=12-14%20years&job_type=Full-time&sort_by=RELEVANCE&page=8',  
+ 'https://www.globallogic.com/careers/search-results?keywords={query}&location=United%20States&experience=10-12%20years%7Cexperience=12-14%20years&job_type=Full-time&sort_by=RELEVANCE&page=9',  
+ 'https://www.globallogic.com/careers/search-results?keywords={query}&location=United%20States&experience=10-12%20years%7Cexperience=12-14%20years&job_type=Full-time&sort_by=RELEVANCE&page=10',  
+ 'https://dth.avature.net/en_US/careers/',
+ 'https://careers.wipro.com/go/Engineering/9369255/',
+ 'https://careers.wipro.com/go/Data-and-Analytics/9369055/',
+ 'https://careers.wipro.com/go/Cyber-Security/9368955/',
+ 'https://careers.wipro.com/go/Consulting/9368855/',
+ 'https://careers.wipro.com/go/Cloud/9368755/',
+ 'https://careers.wipro.com/go/Corporate-Functions/9369455/',
+ 'https://careers.wipro.com/go/Corporate-Functions/9369455/',
+ 'https://jobs.pyjamahr.com/hexa-solutions',
+ 'https://careers.tesco.com/en_GB/careers/SearchJobs',
+ 'https://careers.quest-global.com/global/en/c/hitech-jobs',
+ 'https://careers.cisco.com/global/en/c/product-and-engineering-jobs',
+ 'https://careers.cisco.com/global/en/search-results?category=Internships%2C%20Apprenticeships%2C%20and%20Co-Ops',
+ 'https://careers.cisco.com/global/en/c/project-and-program-management-jobs',
+ 'https://careers.cisco.com/global/en/c/business-development-and-strategy-jobs',
+ 'https://careers.cisco.com/global/en/c/marketing-and-communications-jobs',
 
   // Existing high-signal fallback
   'https://www.ycombinator.com/jobs',
@@ -120,9 +200,50 @@ const targetMatchers = {
     /openai/i,
     /anthropic/i,
     /tesla/i,
+
   ],
   intern: [/internshala/i, /unstop/i],
   startup: [/wellfound/i, /angel\.co/i, /ycombinator/i, /swiggy/i, /zomato/i, /meesho/i],
+}
+
+const ATS_HOST_PATTERNS = [
+  /greenhouse/i,
+  /boards\.greenhouse\.io/i,
+  /lever\.co/i,
+  /workdayjobs/i,
+  /ashbyhq/i,
+  /smartrecruiters/i,
+]
+
+const JOB_BOARD_PATTERNS = [
+  /linkedin\.com\/jobs/i,
+  /indeed/i,
+  /naukri/i,
+  /monster/i,
+  /timesjobs/i,
+  /glassdoor/i,
+  /workindia/i,
+  /wellfound/i,
+  /angel\.co/i,
+  /internshala/i,
+  /hirist/i,
+  /instahyre/i,
+  /remoteok/i,
+  /ycombinator\.com\/jobs/i,
+]
+
+const detectSourceType = (targetUrl = '') => {
+  const value = String(targetUrl || '').toLowerCase()
+  if (!value) return 'job_board'
+  if (ATS_HOST_PATTERNS.some((pattern) => pattern.test(value))) return 'ats_system'
+  if (JOB_BOARD_PATTERNS.some((pattern) => pattern.test(value))) return 'job_board'
+  return 'career_page'
+}
+
+const getSourceTypeBoost = (sourceType) => {
+  if (sourceType === 'career_page') return 0.25
+  if (sourceType === 'ats_system') return 0.15
+  return 0
 }
 
 const getConfiguredTargets = () => {
@@ -151,6 +272,24 @@ const getHostFromUrl = (value) => {
   } catch {
     return String(value || '').toLowerCase()
   }
+}
+
+const tokenizeText = (value) =>
+  String(value || '')
+    .toLowerCase()
+    .split(/[^a-z0-9+.#-]/)
+    .map((token) => token.trim())
+    .filter((token) => token.length > 1)
+
+const overlapRatio = (leftTokens, rightTokens) => {
+  const leftSet = new Set(leftTokens || [])
+  const rightSet = new Set(rightTokens || [])
+  if (leftSet.size === 0 || rightSet.size === 0) return 0
+  let overlap = 0
+  rightSet.forEach((token) => {
+    if (leftSet.has(token)) overlap += 1
+  })
+  return overlap / Math.max(leftSet.size, rightSet.size, 1)
 }
 
 const buildSearchQuery = (profile) => {
@@ -229,66 +368,10 @@ const diversifyTargetOrder = (urls) => {
 
 const resolveTargetsForProfile = (profile) => {
   const encodedQuery = encodeURIComponent(buildSearchQuery(profile))
-  const profileSignals = [
-    profile.role,
-    ...(profile.primarySkills || []),
-    ...(profile.secondarySkills || []),
-    profile.seniorityLevel,
-  ]
-    .join(' ')
-    .toLowerCase()
-
   const withQuery = getConfiguredTargets().map((target) =>
     target.replaceAll('{query}', encodedQuery),
   )
-
-  const scoreTarget = (targetUrl) => {
-    let score = 0
-
-    if (targetMatchers.remote.some((matcher) => matcher.test(targetUrl))) score += 8
-    if (targetMatchers.bigtech.some((matcher) => matcher.test(targetUrl))) score += 6
-    if (targetMatchers.startup.some((matcher) => matcher.test(targetUrl))) score += 4
-
-    if (
-      /intern|fresher|college|student|entry/i.test(profileSignals) &&
-      targetMatchers.intern.some((matcher) => matcher.test(targetUrl))
-    ) {
-      score += 22
-    }
-
-    if (
-      profile.remotePreference &&
-      targetMatchers.remote.some((matcher) => matcher.test(targetUrl))
-    ) {
-      score += 28
-    }
-
-    if (
-      /india|bangalore|bengaluru|pune|hyderabad|noida|gurgaon|gurugram|mumbai|delhi/i.test(
-        String(profile.locationPreference || ''),
-      ) &&
-      targetMatchers.india.some((matcher) => matcher.test(targetUrl))
-    ) {
-      score += 26
-    }
-
-    if (/ai|ml|machine learning|data science|llm|genai/i.test(profileSignals)) {
-      if (/openai|anthropic|google|tesla/i.test(targetUrl)) score += 20
-    }
-
-    if (/product/i.test(profileSignals) && targetMatchers.bigtech.some((matcher) => matcher.test(targetUrl))) {
-      score += 12
-    }
-
-    return score
-  }
-
-  const prioritized = withQuery
-    .map((url) => ({ url, score: scoreTarget(url) }))
-    .sort((left, right) => right.score - left.score)
-    .map((entry) => entry.url)
-
-  return diversifyTargetOrder([...new Set(prioritized)])
+  return diversifyTargetOrder([...new Set(withQuery)])
 }
 
 export const getDynamicTargets = async (profile, options = {}) => {
@@ -305,27 +388,124 @@ export const getDynamicTargets = async (profile, options = {}) => {
     requestedMaxTargets,
   })
 
+  let discoveredCareerTargets = []
+  try {
+    discoveredCareerTargets = await discoverCompanyCareerPages(
+      {
+        role: profile?.role || '',
+        skills: [...(profile?.primarySkills || []), ...(profile?.secondarySkills || [])],
+        location: profile?.locationPreference || (profile?.remotePreference ? 'remote' : ''),
+      },
+      {
+        maxUrls: Math.min(24, requestedMaxTargets + 8),
+      },
+    )
+  } catch {
+    discoveredCareerTargets = []
+  }
+
   const discoveredTargets = await discoverJobSourcesWithGemini({
     profile,
-    fallbackTargets: [...learnedTargets, ...fallbackTargets].slice(0, 35),
+    fallbackTargets: [...discoveredCareerTargets, ...learnedTargets, ...fallbackTargets].slice(0, 40),
     maxTargets: Math.min(28, requestedMaxTargets + 4),
   })
   debugLog('gemini discovery completed', {
     discoveredCount: discoveredTargets.length,
+    discoveredCareerCount: discoveredCareerTargets.length,
   })
 
   const merged = dedupeUrls([
+    ...discoveredCareerTargets,
     ...discoveredTargets,
     ...learnedTargets,
     ...fallbackTargets,
   ])
 
-  const diversified = diversifyTargetOrder(merged)
+  const sourceMetrics = await getLearnedSourceMetrics(profile, merged)
+  const queryTokens = tokenizeText(buildSearchQuery(profile))
+  const profileSignalTokens = tokenizeText([
+    profile?.role || '',
+    ...(profile?.primarySkills || []),
+    ...(profile?.secondarySkills || []),
+    profile?.seniorityLevel || '',
+    profile?.locationPreference || '',
+    profile?.remotePreference ? 'remote' : '',
+  ].join(' '))
+  const roleSignalText = `${profile?.role || ''} ${profile?.seniorityLevel || ''}`.toLowerCase()
+  const locationText = String(profile?.locationPreference || '').toLowerCase()
+
+  const sourcePreferences = {
+    remote: profile?.remotePreference ? 1 : 0.5,
+    india: /(india|bangalore|bengaluru|pune|hyderabad|noida|gurgaon|gurugram|mumbai|delhi)/i.test(
+      locationText,
+    )
+      ? 1
+      : 0.55,
+    startup: /\b(intern|fresher|entry|junior|new grad)\b/i.test(roleSignalText) ? 0.9 : 0.65,
+    bigtech: /\b(senior|staff|principal|lead|architect|manager)\b/i.test(roleSignalText) ? 0.88 : 0.62,
+    other: 0.58,
+  }
+
+  const scored = merged.map((url, index) => {
+    const host = getHostFromUrl(url)
+    const sourceGroup = getSourceGroup(url)
+    const sourceType = detectSourceType(url)
+    const urlTokens = tokenizeText(url)
+    const profileOverlap = overlapRatio(profileSignalTokens, urlTokens)
+    const queryOverlap = overlapRatio(queryTokens, urlTokens)
+    const hostMetrics = sourceMetrics?.[host] || {}
+    const learnedReliability = Number(hostMetrics.reliability || 0)
+    const attemptCount = Number(hostMetrics.attemptCount || 0)
+    const precision = Number(hostMetrics.precision || 0)
+    const relevanceRate = Number(hostMetrics.relevanceRate || 0)
+    const failureRate = Number(hostMetrics.failureRate || 0)
+    const timeoutRate = Number(hostMetrics.timeoutRate || 0)
+    const meanMatchSignal = Math.max(0, Math.min(1, Number(hostMetrics.meanMatchScore || 0) / 100))
+    const sourcePreference = Number(sourcePreferences[sourceGroup] ?? sourcePreferences.other)
+    const sourceTypeBoost = getSourceTypeBoost(
+      hostMetrics?.sourceType === 'ats'
+        ? 'ats_system'
+        : hostMetrics?.sourceType || sourceType,
+    )
+    const discoveryBias = index < discoveredCareerTargets.length
+      ? 0.05
+      : index < discoveredCareerTargets.length + discoveredTargets.length
+        ? 0.03
+        : 0
+
+    // Data-driven blend: reliability/precision/relevance plus semantic overlap, with penalties for flaky hosts.
+    const score =
+      learnedReliability * 0.3 +
+      precision * 0.22 +
+      relevanceRate * 0.16 +
+      profileOverlap * 0.14 +
+      queryOverlap * 0.08 +
+      sourcePreference * 0.06 +
+      meanMatchSignal * 0.06 -
+      failureRate * 0.08 -
+      timeoutRate * 0.06 +
+      sourceTypeBoost +
+      discoveryBias
+    return { url, score, sourceType, attemptCount, failureRate, relevanceRate }
+  })
+
+  const filteredScored = scored.filter((entry) => {
+    const repeatedlyFailing =
+      entry.attemptCount >= 4 && entry.failureRate >= 0.78 && entry.relevanceRate <= 0.05
+    return !repeatedlyFailing
+  })
+
+  const prioritized = filteredScored
+    .sort((left, right) => right.score - left.score)
+    .map((entry) => entry.url)
+
+  const diversified = diversifyTargetOrder(prioritized)
   const bounded = diversified.slice(0, requestedMaxTargets)
 
   if (bounded.length >= Math.min(12, requestedMaxTargets)) {
     debugLog('dynamic targets resolved', {
       selectedCount: bounded.length,
+      scoredCandidates: filteredScored.length,
       elapsedMs: Date.now() - startedAt,
     })
     return bounded
@@ -372,6 +552,95 @@ const sanitizeSalary = (value) => {
   if (!cleaned) return 'Not disclosed'
   if (/^(na|n\/a|not disclosed|not specified)$/i.test(cleaned)) return 'Not disclosed'
   return cleaned
+}
+
+const TECH_STACK_KEYWORDS = [
+  'react',
+  'next.js',
+  'nextjs',
+  'node',
+  'node.js',
+  'express',
+  'nestjs',
+  'typescript',
+  'javascript',
+  'python',
+  'java',
+  'golang',
+  'go',
+  'rust',
+  'c++',
+  'c#',
+  'mongodb',
+  'postgresql',
+  'mysql',
+  'redis',
+  'docker',
+  'kubernetes',
+  'aws',
+  'gcp',
+  'azure',
+  'graphql',
+  'rest',
+  'microservices',
+  'terraform',
+  'jenkins',
+  'pytorch',
+  'tensorflow',
+]
+
+const extractExperience = (textValue) => {
+  const text = sanitizeText(textValue).toLowerCase()
+  if (!text) return 'Not specified'
+  if (/\b(fresher|freshers|entry level|new grad|intern)\b/i.test(text)) return '0-1 years'
+
+  const rangeMatch = text.match(
+    /(\d{1,2})\s*(?:-|to)\s*(\d{1,2})\s*\+?\s*(years?|yrs?)/i,
+  )
+  if (rangeMatch) return `${rangeMatch[1]}-${rangeMatch[2]} years`
+
+  const plusMatch = text.match(/(\d{1,2})\s*\+?\s*(years?|yrs?)/i)
+  if (plusMatch) return `${plusMatch[1]}+ years`
+
+  return 'Not specified'
+}
+
+const extractTechStack = (textValue) => {
+  const text = sanitizeText(textValue).toLowerCase()
+  if (!text) return []
+  const hits = new Set()
+  TECH_STACK_KEYWORDS.forEach((keyword) => {
+    const normalizedKeyword = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const matcher = new RegExp(`\\b${normalizedKeyword}\\b`, 'i')
+    if (matcher.test(text)) hits.add(keyword)
+  })
+  return [...hits].slice(0, 10)
+}
+
+const extractJobType = (textValue) => {
+  const text = sanitizeText(textValue).toLowerCase()
+  if (!text) return 'Not specified'
+  if (/\b(intern|internship)\b/i.test(text)) return 'Internship'
+  if (/\b(contract|freelance|temporary)\b/i.test(text)) return 'Contract'
+  if (/\b(part[-\s]?time)\b/i.test(text)) return 'Part-time'
+  if (/\b(full[-\s]?time|permanent)\b/i.test(text)) return 'Full-time'
+  return 'Not specified'
+}
+
+const enrichJobRecord = (job = {}, sourceUrl = '') => {
+  const sourceType = detectSourceType(sourceUrl)
+  const context = sanitizeText(
+    `${job.title || ''} ${job.description || ''} ${job.location || ''} ${job.salary || ''}`,
+  )
+  return {
+    ...job,
+    sourceType,
+    experience: sanitizeText(job.experience) || extractExperience(context),
+    techStack: Array.isArray(job.techStack) && job.techStack.length > 0
+      ? job.techStack.map((item) => sanitizeText(item)).filter(Boolean).slice(0, 10)
+      : extractTechStack(context),
+    jobType: sanitizeText(job.jobType) || extractJobType(context),
+  }
 }
 
 const roleKeywordRegex =
@@ -587,6 +856,17 @@ const isLikelyNoiseJob = (job) => {
 
 const scrapePageJobs = async (page, sourceUrl) => {
   const company = guessCompanyName(sourceUrl)
+  const atsType = detectAtsType(sourceUrl)
+
+  if (atsType || isAtsUrl(sourceUrl)) {
+    const atsJobs = await scrapeJobsFromAts(page, {
+      sourceUrl,
+      fallbackCompany: company,
+    })
+    if (atsJobs.length > 0) {
+      return atsJobs.map((job) => enrichJobRecord(job, sourceUrl))
+    }
+  }
 
   const extracted = await page.evaluate(
     ({ fallbackCompany }) => {
@@ -756,7 +1036,7 @@ const scrapePageJobs = async (page, sourceUrl) => {
           company: fallbackCompany,
           location: opening.querySelector('.location')?.textContent,
           applyLink: anchor.href,
-          description: opening.textContent?.slice(0, 280),
+          description: opening.textContent?.slice(0, 1400),
         })
         if (index > 20) return
       })
@@ -770,7 +1050,7 @@ const scrapePageJobs = async (page, sourceUrl) => {
           company: fallbackCompany,
           location: posting.querySelector('.posting-categories span')?.textContent,
           applyLink: anchor.href,
-          description: posting.textContent?.slice(0, 280),
+          description: posting.textContent?.slice(0, 1400),
         })
         if (index > 20) return
       })
@@ -783,7 +1063,7 @@ const scrapePageJobs = async (page, sourceUrl) => {
           location: inferLocationFromText(cardText),
           salary: inferSalaryFromText(cardText),
           applyLink: anchor.href,
-          description: cardText.slice(0, 420),
+          description: cardText.slice(0, 1600),
         })
       })
 
@@ -802,7 +1082,7 @@ const scrapePageJobs = async (page, sourceUrl) => {
           company: row.querySelector('h3')?.textContent || fallbackCompany,
           location: row.querySelector('.location')?.textContent || row.textContent,
           applyLink: anchor.href,
-          description: row.textContent?.slice(0, 280),
+          description: row.textContent?.slice(0, 1400),
         })
       })
 
@@ -844,7 +1124,7 @@ const scrapePageJobs = async (page, sourceUrl) => {
               location: inferLocationFromText(anchor.closest('article, li, div')?.textContent || ''),
               salary: inferSalaryFromText(anchor.closest('article, li, div')?.textContent || ''),
               applyLink: anchor.href,
-              description: anchor.closest('article, li, div')?.textContent?.slice(0, 420),
+              description: anchor.closest('article, li, div')?.textContent?.slice(0, 1600),
             })
           })
       }
@@ -854,7 +1134,7 @@ const scrapePageJobs = async (page, sourceUrl) => {
     { fallbackCompany: company },
   )
 
-  return extracted
+  return extracted.map((job) => enrichJobRecord(job, sourceUrl))
 }
 
 export const scrapeJobsWithPlaywright = async (profile, options = {}) => {
@@ -872,6 +1152,8 @@ export const scrapeJobsWithPlaywright = async (profile, options = {}) => {
   const maxTargetsToScan = Math.max(6, Math.min(30, Number(options.maxTargetsToScan || 18)))
   const stopAfterJobs = Math.max(8, Math.min(90, Number(options.stopAfterJobs || 24)))
   const perSourceCap = Math.max(2, Math.min(10, Number(options.perSourceCap || 6)))
+  const maxParallelPages = Math.max(1, Math.min(5, Number(options.maxParallelPages || 5)))
+  const maxSourceRetries = Math.max(0, Math.min(1, Number(options.maxSourceRetries ?? 1)))
   const finalDiversifiedLimit = Math.max(10, Math.min(60, Number(options.finalDiversifiedLimit || 24)))
   const scrapeStartedAt = Date.now()
   const throwIfAborted = () => {
@@ -896,10 +1178,117 @@ export const scrapeJobsWithPlaywright = async (profile, options = {}) => {
     }),
   ])
   const targets = dedupeUrls(resolvedTargets).slice(0, maxTargetsToScan)
-  const targetTimeoutMs = targets.length > 20 ? 12000 : 20000
+  const targetTimeoutMs = Math.max(
+    10000,
+    Math.min(15000, Number(options.targetTimeoutMs || (targets.length > 20 ? 11000 : 14000))),
+  )
   const scraped = []
   const jobsPerHost = new Map()
+  const sourceOutcomes = new Map()
   let browser
+  let telemetryPersisted = false
+
+  const ensureSourceOutcome = (sourceUrl, sourceHost = '') => {
+    const key = String(sourceUrl || '').trim()
+    if (!key) return null
+    if (!sourceOutcomes.has(key)) {
+      sourceOutcomes.set(key, {
+        sourceUrl: key,
+        sourceHost: sourceHost || getHostFromUrl(key),
+        sourceType: detectSourceType(key),
+        attemptCount: 0,
+        successCount: 0,
+        failureCount: 0,
+        timeoutCount: 0,
+        blockedCount: 0,
+        jobsFound: 0,
+        jobsAccepted: 0,
+        qualityJobs: 0,
+        finalJobs: 0,
+        elapsedMs: 0,
+      })
+    }
+    return sourceOutcomes.get(key)
+  }
+
+  const markSourceOutcome = (sourceUrl, sourceHost, patch = {}) => {
+    const outcome = ensureSourceOutcome(sourceUrl, sourceHost)
+    if (!outcome) return
+
+    if (patch.sourceType) {
+      outcome.sourceType = String(patch.sourceType).trim()
+    }
+    outcome.attemptCount += Math.max(0, Number(patch.attemptCount || 0))
+    outcome.successCount += Math.max(0, Number(patch.successCount || 0))
+    outcome.failureCount += Math.max(0, Number(patch.failureCount || 0))
+    outcome.timeoutCount += Math.max(0, Number(patch.timeoutCount || 0))
+    outcome.blockedCount += Math.max(0, Number(patch.blockedCount || 0))
+    outcome.jobsFound += Math.max(0, Number(patch.jobsFound || 0))
+    outcome.jobsAccepted += Math.max(0, Number(patch.jobsAccepted || 0))
+    outcome.qualityJobs += Math.max(0, Number(patch.qualityJobs || 0))
+    outcome.finalJobs += Math.max(0, Number(patch.finalJobs || 0))
+    outcome.elapsedMs += Math.max(0, Number(patch.elapsedMs || 0))
+  }
+
+  const classifySourceError = (error) => {
+    const message = String(error?.message || '').toLowerCase()
+    if (
+      /timeout|timed out|navigation timeout|err_timed_out|waituntil timeout|page\.goto/i.test(message)
+    ) {
+      return {
+        timeoutCount: 1,
+        failureCount: 0,
+        blockedCount: 0,
+      }
+    }
+    if (/403|forbidden|captcha|access denied|blocked|bot detection/i.test(message)) {
+      return {
+        timeoutCount: 0,
+        failureCount: 0,
+        blockedCount: 1,
+      }
+    }
+    return {
+      timeoutCount: 0,
+      failureCount: 1,
+      blockedCount: 0,
+    }
+  }
+
+  const countJobsBySource = (jobs) => {
+    const counts = new Map()
+    for (const job of Array.isArray(jobs) ? jobs : []) {
+      const key = String(job?.source || '').trim()
+      if (!key) continue
+      counts.set(key, (counts.get(key) || 0) + 1)
+    }
+    return counts
+  }
+
+  const persistTelemetry = async ({ qualityJobs = [], finalJobs = [] } = {}) => {
+    if (telemetryPersisted) return
+    telemetryPersisted = true
+
+    const qualityBySource = countJobsBySource(qualityJobs)
+    const finalBySource = countJobsBySource(finalJobs)
+
+    qualityBySource.forEach((count, sourceUrl) => {
+      const host = getHostFromUrl(sourceUrl)
+      markSourceOutcome(sourceUrl, host, { qualityJobs: count })
+    })
+    finalBySource.forEach((count, sourceUrl) => {
+      const host = getHostFromUrl(sourceUrl)
+      markSourceOutcome(sourceUrl, host, { finalJobs: count })
+    })
+
+    const outcomes = [...sourceOutcomes.values()]
+    if (outcomes.length === 0) return
+
+    await recordSourceTelemetryBatch({
+      profile,
+      outcomes,
+    })
+  }
 
   throwIfAborted()
 
@@ -916,86 +1305,147 @@ export const scrapeJobsWithPlaywright = async (profile, options = {}) => {
       timeoutMs: targetTimeoutMs,
       stopAfterJobs,
       perSourceCap,
+      maxParallelPages,
+      maxSourceRetries,
     })
 
-    for (let targetIndex = 0; targetIndex < targets.length; targetIndex += 1) {
-      throwIfAborted()
-      const targetUrl = targets[targetIndex]
+    let queueCursor = 0
+    let shouldStop = false
+
+    const processTarget = async (targetUrl, targetIndex) => {
       const targetHost = getHostFromUrl(targetUrl)
-      const targetStartedAt = Date.now()
-      await safeNotify(
-        onStatus,
-        `Scanning ${targetHost} (${targetIndex + 1}/${targets.length})...`,
-      )
+      const sourceType = detectSourceType(targetUrl)
+      const maxAttempts = maxSourceRetries + 1
 
-      const page = await browser.newPage()
-
-      try {
-        await page.goto(targetUrl, {
-          waitUntil: 'domcontentloaded',
-          timeout: targetTimeoutMs,
-        })
-        await page.waitForTimeout(1200)
-
-        const jobs = await scrapePageJobs(page, targetUrl)
-        const sourceHost = getHostFromUrl(targetUrl)
-        const currentCount = jobsPerHost.get(sourceHost) || 0
-        const remainingSlots = Math.max(0, perSourceCap - currentCount)
-        const cappedJobs = remainingSlots > 0 ? jobs.slice(0, remainingSlots) : []
-        const preparedJobs = cappedJobs.map((job, index) => ({
-          source: targetUrl,
-          externalId: `${targetUrl}-${index}-${job.title}`,
-          ...job,
-        }))
-
-        jobsPerHost.set(sourceHost, currentCount + preparedJobs.length)
-        preparedJobs.forEach((job) => {
-          scraped.push(job)
+      for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+        throwIfAborted()
+        if (shouldStop) return
+        const targetStartedAt = Date.now()
+        markSourceOutcome(targetUrl, targetHost, {
+          sourceType,
+          attemptCount: 1,
         })
 
-        if (preparedJobs.length > 0) {
-          await safeNotify(onTargetJobs, preparedJobs, {
-            sourceUrl: targetUrl,
-            sourceHost,
-            targetIndex,
-            totalTargets: targets.length,
-            totalScraped: scraped.length,
-          })
-        }
-        debugLog('target processed', {
-          targetHost,
-          targetIndex: targetIndex + 1,
-          jobsFound: jobs.length,
-          jobsAccepted: preparedJobs.length,
-          elapsedMs: Date.now() - targetStartedAt,
-        })
-
-        await safeNotify(
-          onStatus,
-          `Scanned ${targetIndex + 1}/${targets.length} sources. ${scraped.length} jobs captured so far.`,
-        )
-
-        const uniqueSources = new Set(scraped.map((entry) => getHostFromUrl(entry.source))).size
-        if (scraped.length >= stopAfterJobs) {
+        if (attempt === 1) {
           await safeNotify(
             onStatus,
-            `Captured ${scraped.length} jobs across ${uniqueSources} sources in this batch.`,
+            `Scanning ${targetHost} (${targetIndex + 1}/${targets.length})...`,
           )
-          break
+        } else {
+          await safeNotify(
+            onStatus,
+            `Retrying ${targetHost} (${attempt}/${maxAttempts}) after transient failure...`,
+          )
         }
-      } catch (error) {
-        if (error?.name === 'AbortError') throw error
-        // Skip failing sources and continue with remaining URLs.
-        debugLog('target failed', {
-          targetHost,
-          targetIndex: targetIndex + 1,
-          elapsedMs: Date.now() - targetStartedAt,
-        })
-        await safeNotify(onStatus, `Skipping source ${targetHost} due to access/parsing issues.`)
-      } finally {
-        await page.close()
+
+        let page = null
+
+        try {
+          page = await browser.newPage()
+          await page.goto(targetUrl, {
+            waitUntil: 'domcontentloaded',
+            timeout: targetTimeoutMs,
+          })
+          await page.waitForTimeout(1000)
+
+          const jobs = await scrapePageJobs(page, targetUrl)
+          const sourceHost = getHostFromUrl(targetUrl)
+          const currentCount = jobsPerHost.get(sourceHost) || 0
+          const remainingSlots = Math.max(0, perSourceCap - currentCount)
+          const cappedJobs = remainingSlots > 0 ? jobs.slice(0, remainingSlots) : []
+          const preparedJobs = cappedJobs.map((job, index) => ({
+            source: targetUrl,
+            sourceType: job.sourceType || sourceType,
+            externalId: `${targetUrl}-${attempt}-${index}-${job.title}`,
+            ...job,
+          }))
+
+          jobsPerHost.set(sourceHost, currentCount + preparedJobs.length)
+          preparedJobs.forEach((job) => {
+            scraped.push(job)
+          })
+
+          if (preparedJobs.length > 0) {
+            await safeNotify(onTargetJobs, preparedJobs, {
+              sourceUrl: targetUrl,
+              sourceHost,
+              targetIndex,
+              totalTargets: targets.length,
+              totalScraped: scraped.length,
+            })
+          }
+
+          debugLog('target processed', {
+            targetHost,
+            targetIndex: targetIndex + 1,
+            attempt,
+            jobsFound: jobs.length,
+            jobsAccepted: preparedJobs.length,
+            elapsedMs: Date.now() - targetStartedAt,
+          })
+          markSourceOutcome(targetUrl, targetHost, {
+            sourceType,
+            successCount: 1,
+            jobsFound: jobs.length,
+            jobsAccepted: preparedJobs.length,
+            elapsedMs: Date.now() - targetStartedAt,
+          })
+
+          await safeNotify(
+            onStatus,
+            `Scanned ${targetIndex + 1}/${targets.length} sources. ${scraped.length} jobs captured so far.`,
+          )
+
+          const uniqueSources = new Set(scraped.map((entry) => getHostFromUrl(entry.source))).size
+          if (scraped.length >= stopAfterJobs) {
+            shouldStop = true
+            await safeNotify(
+              onStatus,
+              `Captured ${scraped.length} jobs across ${uniqueSources} sources in this batch.`,
+            )
+          }
+          return
+        } catch (error) {
+          if (error?.name === 'AbortError') throw error
+          const classified = classifySourceError(error)
+          markSourceOutcome(targetUrl, targetHost, {
+            sourceType,
+            ...classified,
+            elapsedMs: Date.now() - targetStartedAt,
+          })
+          debugLog('target failed', {
+            targetHost,
+            targetIndex: targetIndex + 1,
+            attempt,
+            elapsedMs: Date.now() - targetStartedAt,
+            willRetry: attempt < maxAttempts,
+          })
+
+          if (attempt >= maxAttempts) {
+            await safeNotify(onStatus, `Skipping source ${targetHost} due to access/parsing issues.`)
+            return
+          }
+        } finally {
+          await page?.close()
+        }
       }
     }
+
+    const worker = async () => {
+      while (true) {
+        if (shouldStop) return
+        throwIfAborted()
+        const targetIndex = queueCursor
+        queueCursor += 1
+        if (targetIndex >= targets.length) return
+        const targetUrl = targets[targetIndex]
+        await processTarget(targetUrl, targetIndex)
+      }
+    }
+
+    await Promise.all(
+      Array.from({ length: Math.min(maxParallelPages, targets.length) }, () => worker()),
+    )
   } catch (error) {
     if (error?.name === 'AbortError') throw error
     // Browser launch issues are surfaced as scrape failure below.
@@ -1024,6 +1474,13 @@ export const scrapeJobsWithPlaywright = async (profile, options = {}) => {
       salary: sanitizeSalary(job.salary),
       description: sanitizeText(job.description),
       applyLink: sanitizeText(job.applyLink),
+      sourceType: sanitizeText(job.sourceType) || detectSourceType(job.source),
+      experience: sanitizeText(job.experience) || extractExperience(job.description || job.title),
+      techStack:
+        Array.isArray(job.techStack) && job.techStack.length > 0
+          ? job.techStack.map((item) => sanitizeText(item)).filter(Boolean).slice(0, 10)
+          : extractTechStack(`${job.title || ''} ${job.description || ''}`),
+      jobType: sanitizeText(job.jobType) || extractJobType(`${job.title || ''} ${job.description || ''}`),
     }
     const normalizedCompanyAndLocation = normalizeCompanyAndLocation(normalizedBase)
 
@@ -1037,6 +1494,10 @@ export const scrapeJobsWithPlaywright = async (profile, options = {}) => {
   const qualityFiltered = deduped.filter((job) => !isLikelyNoiseJob(job))
 
   if (qualityFiltered.length === 0) {
+    await persistTelemetry({
+      qualityJobs: qualityFiltered,
+      finalJobs: [],
+    })
     throw new Error(
       'No live jobs were scraped. Verify Playwright browser install and SCRAPE_TARGETS URLs.',
     )
@@ -1079,6 +1540,11 @@ export const scrapeJobsWithPlaywright = async (profile, options = {}) => {
     finalCount: diversifiedJobs.length,
     sourceCount: groupedBySource.size,
     elapsedMs: Date.now() - scrapeStartedAt,
+  })
+
+  await persistTelemetry({
+    qualityJobs: qualityFiltered,
+    finalJobs: diversifiedJobs,
   })
 
   return diversifiedJobs

@@ -51,6 +51,12 @@ export const streamSessionJobs = async (request, response, next) => {
     writeSseEvent(response, 'job', job)
   })
 
+  if (Array.isArray(snapshot.finalJobs) && snapshot.finalJobs.length > 0) {
+    writeSseEvent(response, 'final_jobs', {
+      jobs: snapshot.finalJobs,
+    })
+  }
+
   if (snapshot.status === 'completed') {
     writeSseEvent(response, 'done', { summary: snapshot.summary })
     response.end()
@@ -69,6 +75,7 @@ export const streamSessionJobs = async (request, response, next) => {
 
   const unsubscribe = subscribeToSessionStream(sessionId, {
     onJob: (job) => writeSseEvent(response, 'job', job),
+    onFinalJobs: ({ jobs }) => writeSseEvent(response, 'final_jobs', { jobs: jobs || [] }),
     onStatus: ({ statusMessage }) => writeSseEvent(response, 'status', { statusMessage }),
     onDone: ({ summary }) => {
       writeSseEvent(response, 'done', { summary })

@@ -1,6 +1,7 @@
 import { ChatSession } from '../../models/ChatSession.js'
 import { env } from '../../config/environment.js'
 import {
+  emitFinalJobsSnapshot,
   emitJobUpdate,
   emitSessionStatus,
   emitSessionComplete,
@@ -119,7 +120,7 @@ const buildContinuationPrompt = ({ foundJobs, strongJobs }) => {
   )
 }
 
-export const processSessionInBackground = async ({ sessionId, prompt, resumeText }) => {
+export const processSessionInBackground = async ({ sessionId, prompt, resumeText, profileSeed = null }) => {
   const startedAt = Date.now()
   const abortSignal = createSessionAbortSignal(sessionId)
   let activePhase = 'initializing'
@@ -202,7 +203,7 @@ export const processSessionInBackground = async ({ sessionId, prompt, resumeText
     const { profile } = await runPhase(
       'profile-analysis',
       'Analyzing profile and preparing dynamic sources...',
-      () => buildPreferenceProfile({ prompt, resumeText }),
+      () => buildPreferenceProfile({ prompt, resumeText, profileSeed }),
     )
     structuredProfile = profile
 
@@ -316,6 +317,7 @@ export const processSessionInBackground = async ({ sessionId, prompt, resumeText
       finalJobs: filteredJobs.length,
       mergedJobs: mergedJobs.length,
     })
+    emitFinalJobsSnapshot(sessionId, filteredJobs)
 
     const summary = await runPhase('assistant-summary', 'Generating assistant summary...', () =>
       generateAssistantSummary({
@@ -405,6 +407,7 @@ export const processSessionInBackground = async ({ sessionId, prompt, resumeText
       })
 
       emitSessionStatus(sessionId, 'Search stopped by user.')
+      emitFinalJobsSnapshot(sessionId, partialSet.filteredJobs || [])
       emitSessionComplete(sessionId, stoppedSummary)
       return
     }

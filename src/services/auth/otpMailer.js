@@ -1,38 +1,7 @@
-import nodemailer from 'nodemailer'
 import { env } from '../../config/environment.js'
-
-let cachedTransporter = null
-
-const hasSmtpConfig = () => {
-  return Boolean(env.smtpHost && env.smtpPort && env.smtpUser && env.smtpPass)
-}
-
-const getTransporter = () => {
-  if (cachedTransporter) return cachedTransporter
-
-  if (hasSmtpConfig()) {
-    cachedTransporter = nodemailer.createTransport({
-      host: env.smtpHost,
-      port: env.smtpPort,
-      secure: env.smtpSecure,
-      auth: {
-        user: env.smtpUser,
-        pass: env.smtpPass,
-      },
-    })
-    return cachedTransporter
-  }
-
-  // Development-safe fallback when SMTP env vars are not provided.
-  cachedTransporter = nodemailer.createTransport({
-    jsonTransport: true,
-  })
-  return cachedTransporter
-}
+import { sendEmail } from '../../utils/auth/sendEmail.js'
 
 export const sendOtpEmail = async ({ name, email, otpCode, expiresInMinutes }) => {
-  const transporter = getTransporter()
-  const senderAddress = env.smtpFrom || env.smtpUser || 'no-reply@aaply.ai'
   const subject = 'Aaply verification code'
   const safeName = String(name || 'there').trim()
 
@@ -56,16 +25,17 @@ export const sendOtpEmail = async ({ name, email, otpCode, expiresInMinutes }) =
     </div>
   `
 
-  await transporter.sendMail({
-    from: senderAddress,
+  const delivery = await sendEmail({
     to: email,
     subject,
     text,
     html,
   })
 
-  if (!hasSmtpConfig() && env.nodeEnv !== 'production') {
+  if (env.nodeEnv !== 'production') {
     // eslint-disable-next-line no-console
-    console.log(`[auth] OTP for ${email}: ${otpCode}`)
+    console.log(
+      `[auth] OTP email dispatched to ${email} (status=${delivery?.statusCode || 'n/a'} messageId=${delivery?.messageId || 'n/a'})`,
+    )
   }
 }

@@ -80,9 +80,27 @@ const buildDistribution = (scores) => {
   }
 }
 
+const percentile = (scores, percentileValue) => {
+  const sorted = (Array.isArray(scores) ? scores : [])
+    .map((score) => Number(score))
+    .filter((score) => Number.isFinite(score))
+    .sort((left, right) => left - right)
+  if (sorted.length === 0) return 0
+  if (sorted.length === 1) return sorted[0]
+
+  const boundedPercentile = Math.max(0, Math.min(100, Number(percentileValue) || 0))
+  const rank = (boundedPercentile / 100) * (sorted.length - 1)
+  const lower = Math.floor(rank)
+  const upper = Math.ceil(rank)
+  if (lower === upper) return sorted[lower]
+  const weight = rank - lower
+  return sorted[lower] * (1 - weight) + sorted[upper] * weight
+}
+
 export const preFilterJobsForScoring = (jobs, options = {}) => {
   const list = Array.isArray(jobs) ? jobs : []
-  const minQualityScore = Math.max(0.2, Math.min(0.75, Number(options.minQualityScore || 0.36)))
+  const configuredThreshold = Number(options.minQualityScore)
+  const hasConfiguredThreshold = Number.isFinite(configuredThreshold)
 
   if (list.length === 0) {
     return {
@@ -93,24 +111,36 @@ export const preFilterJobsForScoring = (jobs, options = {}) => {
         acceptedCount: 0,
         rejectedCount: 0,
         fallbackApplied: false,
-        minQualityScore,
+        minQualityScore: Math.max(0.2, Math.min(0.75, configuredThreshold || 0.36)),
         acceptedQuality: buildDistribution([]),
         rejectedQuality: buildDistribution([]),
       },
     }
   }
 
-  const evaluated = list.map((job) => {
+  const scoredEntries = list.map((job) => {
     const qualityScore = computeQualityScore(job)
     const hasTitle = String(job?.title || '').trim().length > 0
     const hasApplyLink = /^https?:\/\//i.test(String(job?.applyLink || '').trim())
-    const accepted = qualityScore >= minQualityScore && hasTitle && hasApplyLink
     return {
       job,
       qualityScore,
-      accepted,
+      hasTitle,
+      hasApplyLink,
     }
   })
+
+  const qualityScores = scoredEntries.map((entry) => entry.qualityScore)
+  const dynamicThreshold =
+    qualityScores.length >= 10 ? percentile(qualityScores, 35) : percentile(qualityScores, 30)
+  const minQualityScore = hasConfiguredThreshold
+    ? Math.max(0.2, Math.min(0.75, configuredThreshold))
+    : Math.max(0.26, Math.min(0.56, dynamicThreshold))
+
+  const evaluated = scoredEntries.map((entry) => ({
+    ...entry,
+    accepted: entry.qualityScore >= minQualityScore && entry.hasTitle && entry.hasApplyLink,
+  }))
 
   let acceptedEntries = evaluated.filter((entry) => entry.accepted)
   const rejectedEntries = evaluated.filter((entry) => !entry.accepted)

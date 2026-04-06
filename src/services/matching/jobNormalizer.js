@@ -5,6 +5,11 @@ const knownSkills = [
   'next.js',
   'typescript',
   'javascript',
+  'nestjs',
+  'angular',
+  'vue',
+  'svelte',
+  'react native',
   'html',
   'css',
   'tailwind',
@@ -12,22 +17,54 @@ const knownSkills = [
   'node.js',
   'node',
   'express',
+  'fastify',
+  'graphql',
+  'rest',
+  'microservices',
   'mongodb',
+  'mongoose',
   'mysql',
   'postgresql',
+  'sql',
+  'nosql',
   'redis',
   'aws',
+  'gcp',
+  'azure',
   'docker',
   'kubernetes',
+  'terraform',
+  'jenkins',
+  'github actions',
   'ci/cd',
   'python',
   'java',
+  'go',
+  'golang',
+  'rust',
+  'c++',
+  'c#',
+  '.net',
+  'spring boot',
   'dsa',
   'system design',
   'ai/ml',
+  'machine learning',
+  'deep learning',
+  'llm',
+  'pytorch',
+  'tensorflow',
+  'nlp',
 ]
 
 const sanitize = (value) => String(value || '').replace(/\s+/g, ' ').trim()
+
+const escapeRegex = (value) => String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+const skillMatchers = knownSkills.map((skill) => {
+  const pattern = new RegExp(`\\b${escapeRegex(skill).replace(/\s+/g, '\\s+')}\\b`, 'i')
+  return { skill, pattern }
+})
 
 const buildJobHash = (job) => {
   const signature = [
@@ -42,7 +79,9 @@ const buildJobHash = (job) => {
 
 const inferSkills = (title, description) => {
   const haystack = `${title} ${description}`.toLowerCase()
-  const matched = knownSkills.filter((skill) => haystack.includes(skill.toLowerCase()))
+  const matched = skillMatchers
+    .filter((entry) => entry.pattern.test(haystack))
+    .map((entry) => entry.skill)
   return [...new Set(matched)]
 }
 

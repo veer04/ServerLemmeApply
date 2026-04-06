@@ -31,6 +31,7 @@ const ensureStreamState = (sessionId) => {
   if (!sessionStreams.has(key)) {
     sessionStreams.set(key, {
       jobs: [],
+      finalJobs: [],
       status: 'processing',
       statusMessage: '',
       summary: '',
@@ -60,6 +61,12 @@ const applyEvent = (sessionId, eventName, payload, options = {}) => {
     streamState.jobs.push(payload)
     streamState.updatedAt = Date.now()
     streamEmitter.emit(`job:${key}`, payload)
+  } else if (eventName === 'final_jobs') {
+    streamState.finalJobs = Array.isArray(payload?.jobs) ? payload.jobs : []
+    streamState.updatedAt = Date.now()
+    streamEmitter.emit(`final_jobs:${key}`, {
+      jobs: streamState.finalJobs,
+    })
   } else if (eventName === 'status') {
     streamState.statusMessage = String(payload?.statusMessage || '').trim()
     streamState.updatedAt = Date.now()
@@ -128,6 +135,13 @@ export const emitSessionStatus = (sessionId, statusMessage) => {
   })
 }
 
+export const emitFinalJobsSnapshot = (sessionId, jobs) => {
+  ensureRedisBridge()
+  applyEvent(sessionId, 'final_jobs', {
+    jobs: Array.isArray(jobs) ? jobs : [],
+  })
+}
+
 export const emitSessionComplete = (sessionId, summary) => {
   ensureRedisBridge()
   applyEvent(sessionId, 'done', { summary })
@@ -159,17 +173,20 @@ export const subscribeToSessionStream = (sessionId, handlers) => {
 
   const key = normalizeSessionId(sessionId)
   const onJob = (payload) => handlers.onJob?.(payload)
+  const onFinalJobs = (payload) => handlers.onFinalJobs?.(payload)
   const onStatus = (payload) => handlers.onStatus?.(payload)
   const onDone = (payload) => handlers.onDone?.(payload)
   const onError = (payload) => handlers.onError?.(payload)
 
   streamEmitter.on(`job:${key}`, onJob)
+  streamEmitter.on(`final_jobs:${key}`, onFinalJobs)
   streamEmitter.on(`status:${key}`, onStatus)
   streamEmitter.on(`done:${key}`, onDone)
   streamEmitter.on(`error:${key}`, onError)
 
   return () => {
     streamEmitter.off(`job:${key}`, onJob)
+    streamEmitter.off(`final_jobs:${key}`, onFinalJobs)
     streamEmitter.off(`status:${key}`, onStatus)
     streamEmitter.off(`done:${key}`, onDone)
     streamEmitter.off(`error:${key}`, onError)
