@@ -4,6 +4,6 @@ export const GUEST_LIMITS = {
 }
 
 export const USER_LIMITS = {
-  hourly: 10000,
-  daily: 30000,
+  hourly: 1000,
+  daily: 5000,
 }

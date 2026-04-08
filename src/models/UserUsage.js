@@ -39,6 +39,10 @@ const userUsageSchema = new mongoose.Schema(
       type: Date,
       default: getNextHourlyReset,
     },
+    hourlyLimitHitAt: {
+      type: Date,
+      default: null,
+    },
     dailyResetAt: {
       type: Date,
       default: getNextDailyReset,

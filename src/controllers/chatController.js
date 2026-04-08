@@ -2,7 +2,17 @@ import { ChatSession } from '../models/ChatSession.js'
 import { UserProfile } from '../models/UserProfile.js'
 import { env } from '../config/environment.js'
 import { extractResumeText } from '../services/files/resumeTextExtractor.js'
-import { initSessionStream } from '../services/realtime/sessionStream.js'
+import {
+  emitSessionComplete,
+  emitSessionStatus,
+  initSessionStream,
+} from '../services/realtime/sessionStream.js'
+import { handleUserMessage } from '../services/chat/chatRouter.js'
+import {
+  getUserContext,
+  recordConversationTurn,
+  updateUserContext,
+} from '../services/context/contextService.js'
 import { dispatchSessionProcessing } from '../services/session/sessionQueue.js'
 import {
   buildTokenUsagePayload,
@@ -136,16 +146,21 @@ const buildProfileSeed = (profileDocument) => {
   }
 }
 
+const buildRoutingProfileSeed = (routingProfile) => {
+  const profile = routingProfile && typeof routingProfile === 'object' ? routingProfile : {}
+  const extractedSkills = Array.isArray(profile.skills) ? profile.skills : []
+  const location = String(profile.location || '').trim()
+  return {
+    role: String(profile.role || '').trim(),
+    skills: extractedSkills.slice(0, 12),
+    experience: String(profile.experience || '').trim(),
+    location,
+    locationPreference: location,
+  }
+}
+
 export const createChatSession = async (request, response, next) => {
   try {
-    if (!env.vertexProject) {
-      const error = new Error(
-        'VERTEX_PROJECT_ID is not configured in server/.env. Add it to enable Vertex AI matching.',
-      )
-      error.statusCode = 503
-      throw error
-    }
-
     const prompt = String(request.body.prompt || '').trim()
     if (!prompt) {
       const error = new Error('Prompt is required.')
@@ -157,6 +172,7 @@ export const createChatSession = async (request, response, next) => {
     const quickContext = Array.isArray(metadata.selectedActions)
       ? metadata.selectedActions.join(', ')
       : ''
+
     const usageIdentity = resolveUsageIdentityFromRequest(request)
     const usageLimits = request.usageContext?.limits || getLimitsForIdentity(usageIdentity)
     const tokenUsageSnapshot = buildTokenUsagePayload({
@@ -169,22 +185,20 @@ export const createChatSession = async (request, response, next) => {
     const profileSeed = buildProfileSeed(storedProfile)
 
     const resumeText = await extractResumeText(request.file)
-    const enrichedPrompt = [
-      prompt,
-      quickContext ? `Additional context: ${quickContext}` : '',
-      storedProfileContext ? `Saved profile context:\n${storedProfileContext}` : '',
-    ]
-      .filter(Boolean)
-      .join('\n\n')
+    const userContext = getUserContext(usageIdentity)
+    const routeResult = await handleUserMessage(prompt, userContext)
+    const responseType = String(routeResult?.type || 'JOB_RESULT').trim().toUpperCase()
+    const suggestions = Array.isArray(routeResult?.suggestions) ? routeResult.suggestions.slice(0, 5) : []
+    const routingProfileSeed = buildRoutingProfileSeed(routeResult?.mergedProfile)
+    const searchPrompt = String(routeResult?.searchPrompt || prompt).trim() || prompt
 
-    const messages = [
-      { role: 'user', content: prompt, createdAt: new Date() },
-      {
-        role: 'assistant',
-        content: 'Analyzing your profile and AI searching live job opportunities...',
-        createdAt: new Date(),
-      },
-    ]
+    updateUserContext(usageIdentity, {
+      lastIntent: routeResult?.intent || 'UNKNOWN',
+      extractedProfile: routingProfileSeed,
+      lastSearchQuery: routeResult?.shouldScrape ? searchPrompt : userContext?.lastSearchQuery || '',
+      pendingAction: routeResult?.pendingAction || '',
+    })
+    recordConversationTurn(usageIdentity, { role: 'user', content: prompt })
 
     const attachments = request.file
       ? [
@@ -197,20 +211,96 @@ export const createChatSession = async (request, response, next) => {
         ]
       : []
 
+    const assistantMessage = String(
+      routeResult?.message || 'Got it. Searching live opportunities matching your profile now.',
+    ).trim()
+
+    if (!routeResult?.shouldScrape) {
+      const chatSession = await ChatSession.create({
+        userId,
+        prompt,
+        resumeText,
+        attachments,
+        messages: [
+          { role: 'user', content: prompt, createdAt: new Date() },
+          { role: 'assistant', content: assistantMessage, createdAt: new Date() },
+        ],
+        conversationHistory: [
+          { role: 'user', content: prompt, createdAt: new Date() },
+          { role: 'assistant', content: assistantMessage, createdAt: new Date() },
+        ],
+        status: 'completed',
+      })
+
+      const chatSessionId = chatSession._id.toString()
+      initSessionStream(chatSessionId)
+      emitSessionStatus(chatSessionId, 'Chat response ready.')
+      emitSessionComplete(chatSessionId, assistantMessage)
+      recordConversationTurn(usageIdentity, {
+        role: 'assistant',
+        content: assistantMessage,
+      })
+
+      response.status(201).json({
+        sessionId: chatSessionId,
+        status: 'completed',
+        assistantMessage,
+        processingMode: 'chat',
+        responseType,
+        suggestions,
+        tokenUsage: tokenUsageSnapshot,
+      })
+      return
+    }
+
+    if (!env.vertexProject) {
+      const error = new Error(
+        'VERTEX_PROJECT_ID is not configured in server/.env. Add it to enable Vertex AI matching.',
+      )
+      error.statusCode = 503
+      throw error
+    }
+
+    const enrichedPrompt = [
+      searchPrompt,
+      quickContext ? `Additional context: ${quickContext}` : '',
+      storedProfileContext ? `Saved profile context:\n${storedProfileContext}` : '',
+    ]
+      .filter(Boolean)
+      .join('\n\n')
+
+    const combinedProfileSeed = {
+      ...(profileSeed || {}),
+      ...routingProfileSeed,
+      skills: [
+        ...new Set([
+          ...(profileSeed?.primarySkills || []),
+          ...(profileSeed?.secondarySkills || []),
+          ...(routingProfileSeed?.skills || []),
+        ]),
+      ].slice(0, 12),
+      role: routingProfileSeed.role || profileSeed?.role || '',
+      locationPreference:
+        routingProfileSeed.locationPreference || profileSeed?.locationPreference || '',
+      experience: routingProfileSeed.experience || '',
+    }
+
+    const processingMessages = [
+      { role: 'user', content: prompt, createdAt: new Date() },
+      {
+        role: 'assistant',
+        content: assistantMessage,
+        createdAt: new Date(),
+      },
+    ]
+
     const session = await ChatSession.create({
       userId,
       prompt,
       resumeText,
       attachments,
-      messages,
-      conversationHistory: [
-        { role: 'user', content: prompt, createdAt: new Date() },
-        {
-          role: 'assistant',
-          content: 'Analyzing your profile and AI searching live job opportunities...',
-          createdAt: new Date(),
-        },
-      ],
+      messages: processingMessages,
+      conversationHistory: processingMessages,
       status: 'processing',
     })
 
@@ -221,18 +311,25 @@ export const createChatSession = async (request, response, next) => {
       sessionId,
       prompt: enrichedPrompt,
       resumeText,
-      profileSeed,
+      profileSeed: combinedProfileSeed,
       usageMeta: {
         ...usageIdentity,
         inputText: prompt,
       },
     })
 
+    recordConversationTurn(usageIdentity, {
+      role: 'assistant',
+      content: assistantMessage,
+    })
+
     response.status(201).json({
       sessionId,
       status: session.status,
-      assistantMessage: messages[1].content,
+      assistantMessage,
       processingMode: dispatchResult.mode,
+      responseType: 'JOB_RESULT',
+      suggestions,
       tokenUsage: tokenUsageSnapshot,
     })
   } catch (error) {

@@ -86,6 +86,9 @@ const buildUsageWindowStage = ({ identity, now, nextHourlyReset, nextDailyReset 
       hourlyTokensUsed: {
         $cond: [resetHourlyExpr, 0, { $ifNull: ['$hourlyTokensUsed', 0] }],
       },
+      hourlyLimitHitAt: {
+        $cond: [resetHourlyExpr, null, { $ifNull: ['$hourlyLimitHitAt', null] }],
+      },
       dailyTokensUsed: {
         $cond: [resetDailyExpr, 0, { $ifNull: ['$dailyTokensUsed', 0] }],
       },
@@ -153,6 +156,28 @@ export const incrementUsageTokensAtomic = async (identity, tokensToAdd = 0) => {
     ],
     {
       upsert: true,
+      new: true,
+    },
+  )
+}
+
+export const lockHourlyCooldownFromHitTime = async (usageId) => {
+  const now = new Date()
+  const oneHourLater = new Date(now.getTime() + 60 * 60 * 1000)
+
+  return UserUsage.findOneAndUpdate(
+    {
+      _id: usageId,
+      hourlyLimitHitAt: null,
+    },
+    {
+      $set: {
+        hourlyLimitHitAt: now,
+        hourlyResetAt: oneHourLater,
+        lastRequestAt: now,
+      },
+    },
+    {
       new: true,
     },
   )
