@@ -99,6 +99,10 @@ export const enqueueSessionProcessing = async (payload) => {
       payload?.profileSeed && typeof payload.profileSeed === 'object'
         ? payload.profileSeed
         : null
+    const normalizedUsageMeta =
+      payload?.usageMeta && typeof payload.usageMeta === 'object'
+        ? payload.usageMeta
+        : null
     const job = await queue.add(
       'process-session',
       {
@@ -106,6 +110,7 @@ export const enqueueSessionProcessing = async (payload) => {
         prompt: String(payload?.prompt || ''),
         resumeText: String(payload?.resumeText || ''),
         profileSeed: normalizedProfileSeed,
+        usageMeta: normalizedUsageMeta,
       },
       {
         jobId: sessionId,
@@ -187,11 +192,14 @@ export const startSessionQueueWorker = async ({ force = false } = {}) => {
       const data = job?.data || {}
       const normalizedProfileSeed =
         data.profileSeed && typeof data.profileSeed === 'object' ? data.profileSeed : null
+      const normalizedUsageMeta =
+        data.usageMeta && typeof data.usageMeta === 'object' ? data.usageMeta : null
       await processSessionInBackground({
         sessionId: String(data.sessionId || ''),
         prompt: String(data.prompt || ''),
         resumeText: String(data.resumeText || ''),
         profileSeed: normalizedProfileSeed,
+        usageMeta: normalizedUsageMeta,
       })
     },
     {

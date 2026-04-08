@@ -4,6 +4,12 @@ import { env } from '../config/environment.js'
 import { extractResumeText } from '../services/files/resumeTextExtractor.js'
 import { initSessionStream } from '../services/realtime/sessionStream.js'
 import { dispatchSessionProcessing } from '../services/session/sessionQueue.js'
+import {
+  buildTokenUsagePayload,
+  getLimitsForIdentity,
+  resolveUsageIdentityFromRequest,
+  syncUsageWindow,
+} from '../services/token/usageService.js'
 import mongoose from 'mongoose'
 import path from 'node:path'
 
@@ -151,6 +157,12 @@ export const createChatSession = async (request, response, next) => {
     const quickContext = Array.isArray(metadata.selectedActions)
       ? metadata.selectedActions.join(', ')
       : ''
+    const usageIdentity = resolveUsageIdentityFromRequest(request)
+    const usageLimits = request.usageContext?.limits || getLimitsForIdentity(usageIdentity)
+    const tokenUsageSnapshot = buildTokenUsagePayload({
+      usage: request.usage,
+      limits: usageLimits,
+    })
     const userId = toObjectId(request.user?.userId, 'userId')
     const storedProfile = await UserProfile.findOne({ userId }).lean()
     const storedProfileContext = buildStoredProfileContext(storedProfile)
@@ -210,6 +222,10 @@ export const createChatSession = async (request, response, next) => {
       prompt: enrichedPrompt,
       resumeText,
       profileSeed,
+      usageMeta: {
+        ...usageIdentity,
+        inputText: prompt,
+      },
     })
 
     response.status(201).json({
@@ -217,6 +233,24 @@ export const createChatSession = async (request, response, next) => {
       status: session.status,
       assistantMessage: messages[1].content,
       processingMode: dispatchResult.mode,
+      tokenUsage: tokenUsageSnapshot,
+    })
+  } catch (error) {
+    next(error)
+  }
+}
+
+export const getTokenUsage = async (request, response, next) => {
+  try {
+    const identity = resolveUsageIdentityFromRequest(request)
+    const limits = getLimitsForIdentity(identity)
+    const usage = await syncUsageWindow(identity)
+
+    response.json({
+      tokenUsage: buildTokenUsagePayload({
+        usage,
+        limits,
+      }),
     })
   } catch (error) {
     next(error)
