@@ -5,6 +5,14 @@ import {
 } from '../services/gemini/geminiService.js'
 import { scrapeJobsWithPlaywright } from '../services/scraping/playwrightScraper.js'
 import { buildMatchedJobs } from '../services/session/matchPipeline.js'
+import { calculateTokensUsed } from '../services/token/tokenService.js'
+import {
+  buildTokenUsagePayload,
+  getLimitsForIdentity,
+  incrementUsageTokensAtomic,
+  normalizeUsageMeta,
+  resolveUsageIdentityFromRequest,
+} from '../services/token/usageService.js'
 import mongoose from 'mongoose'
 
 const baseProfile = {
@@ -158,6 +166,35 @@ export const refineJobs = async (request, response, next) => {
       }))
     const mergedJobs = mergeJobs(existingJobs, loadMore ? additionalJobs : finalJobs)
 
+    const usageIdentity = normalizeUsageMeta({
+      ...(request.usageContext || resolveUsageIdentityFromRequest(request)),
+      inputText: instruction,
+    })
+    const usageLimits = request.usageContext?.limits || getLimitsForIdentity(usageIdentity)
+    const jobsReturnedForUsage = shouldLoadMore ? additionalJobs : finalJobs
+    const tokenStats = calculateTokensUsed({
+      inputText: instruction,
+      jobsReturned: jobsReturnedForUsage,
+      aiEnrichmentUsed: true,
+    })
+    let tokenUsage = request.usageContext?.tokenUsage || null
+    const hasTrackableIdentity =
+      Boolean(usageIdentity?.userId) ||
+      (Boolean(usageIdentity?.isGuest) &&
+        Boolean(usageIdentity?.ipAddress) &&
+        usageIdentity.ipAddress !== 'unknown')
+    if (hasTrackableIdentity) {
+      try {
+        const updatedUsage = await incrementUsageTokensAtomic(usageIdentity, tokenStats.totalTokens)
+        tokenUsage = buildTokenUsagePayload({
+          usage: updatedUsage,
+          limits: usageLimits,
+        })
+      } catch {
+        tokenUsage = null
+      }
+    }
+
     let assistantSummary = await generateAssistantSummary({
       profile: refinedProfile,
       topJobs: shouldLoadMore ? additionalJobs.slice(0, 5) : finalJobs,
@@ -204,6 +241,7 @@ export const refineJobs = async (request, response, next) => {
       usedCachedJobs: cachedJobs.length > 0,
       loadMore: shouldLoadMore,
       continuationRequested,
+      tokenUsage,
     })
   } catch (error) {
     next(error)

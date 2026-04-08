@@ -854,6 +854,36 @@ const isLikelyNoiseJob = (job) => {
   return false
 }
 
+const buildDiversifiedJobsBySource = (jobs, limit = 24) => {
+  const groupedBySource = new Map()
+  for (const job of Array.isArray(jobs) ? jobs : []) {
+    const sourceHost = getHostFromUrl(job?.source || '')
+    if (!sourceHost) continue
+    if (!groupedBySource.has(sourceHost)) {
+      groupedBySource.set(sourceHost, [])
+    }
+    groupedBySource.get(sourceHost).push(job)
+  }
+
+  const sourceQueues = [...groupedBySource.values()].map((items) => items.slice(0, 4))
+  const diversifiedJobs = []
+  let keepIterating = true
+  while (keepIterating && diversifiedJobs.length < limit) {
+    keepIterating = false
+    for (const queue of sourceQueues) {
+      if (queue.length === 0) continue
+      keepIterating = true
+      diversifiedJobs.push(queue.shift())
+      if (diversifiedJobs.length >= limit) break
+    }
+  }
+
+  return {
+    diversifiedJobs,
+    sourceCount: groupedBySource.size,
+  }
+}
+
 const scrapePageJobs = async (page, sourceUrl) => {
   const company = guessCompanyName(sourceUrl)
   const atsType = detectAtsType(sourceUrl)
@@ -1153,8 +1183,13 @@ export const scrapeJobsWithPlaywright = async (profile, options = {}) => {
   const stopAfterJobs = Math.max(8, Math.min(90, Number(options.stopAfterJobs || 24)))
   const perSourceCap = Math.max(2, Math.min(10, Number(options.perSourceCap || 6)))
   const maxParallelPages = Math.max(1, Math.min(5, Number(options.maxParallelPages || 5)))
-  const maxSourceRetries = Math.max(0, Math.min(1, Number(options.maxSourceRetries ?? 1)))
+  const maxSourceRetries = Math.max(0, Math.min(2, Number(options.maxSourceRetries ?? 1)))
   const finalDiversifiedLimit = Math.max(10, Math.min(60, Number(options.finalDiversifiedLimit || 24)))
+  const scrapeRound = Math.max(1, Number(options.scrapeRound || 1))
+  const maxAutoRounds = Math.max(
+    scrapeRound,
+    Math.min(3, Number(options.maxAutoRounds || 2)),
+  )
   const scrapeStartedAt = Date.now()
   const throwIfAborted = () => {
     if (!abortSignal?.aborted) return
@@ -1180,7 +1215,7 @@ export const scrapeJobsWithPlaywright = async (profile, options = {}) => {
   const targets = dedupeUrls(resolvedTargets).slice(0, maxTargetsToScan)
   const targetTimeoutMs = Math.max(
     10000,
-    Math.min(15000, Number(options.targetTimeoutMs || (targets.length > 20 ? 11000 : 14000))),
+    Math.min(25000, Number(options.targetTimeoutMs || (targets.length > 20 ? 11000 : 14000))),
   )
   const scraped = []
   const jobsPerHost = new Map()
@@ -1294,7 +1329,9 @@ export const scrapeJobsWithPlaywright = async (profile, options = {}) => {
 
   await safeNotify(
     onStatus,
-    `Discovered ${targets.length} sources in current batch. Starting live scraping...`,
+    `Discovered ${targets.length} sources in current batch. Starting live scraping${
+      scrapeRound > 1 ? ` (deep round ${scrapeRound}/${maxAutoRounds})` : ''
+    }...`,
   )
 
   try {
@@ -1494,13 +1531,56 @@ export const scrapeJobsWithPlaywright = async (profile, options = {}) => {
   const qualityFiltered = deduped.filter((job) => !isLikelyNoiseJob(job))
 
   if (qualityFiltered.length === 0) {
+    const shouldRetryDeeper = scrapeRound < maxAutoRounds
+    if (shouldRetryDeeper) {
+      await persistTelemetry({
+        qualityJobs: [],
+        finalJobs: [],
+      })
+      await safeNotify(
+        onStatus,
+        "We searched on the internet but didn't find the relevant jobs as per your requirement, searching deeper now, sorry for your inconvenience.",
+      )
+      debugLog('quality filter empty - retrying deeper round', {
+        scrapeRound,
+        maxAutoRounds,
+        dedupedCount: deduped.length,
+      })
+      return scrapeJobsWithPlaywright(profile, {
+        ...options,
+        scrapeRound: scrapeRound + 1,
+        maxAutoRounds,
+        maxTargetsToScan: Math.min(30, maxTargetsToScan + 8),
+        stopAfterJobs: Math.min(90, stopAfterJobs + 12),
+        perSourceCap: Math.min(10, perSourceCap + 2),
+        targetTimeoutMs: Math.max(20000, targetTimeoutMs),
+        maxSourceRetries: Math.min(2, maxSourceRetries + 1),
+        finalDiversifiedLimit: Math.min(60, finalDiversifiedLimit + 10),
+      })
+    }
+
+    if (deduped.length > 0) {
+      const fallbackResult = buildDiversifiedJobsBySource(deduped, finalDiversifiedLimit)
+      await safeNotify(
+        onStatus,
+        `Deep search completed with strict-match misses. Returning ${fallbackResult.diversifiedJobs.length} best available jobs.`,
+      )
+      await persistTelemetry({
+        qualityJobs: deduped,
+        finalJobs: fallbackResult.diversifiedJobs,
+      })
+      return fallbackResult.diversifiedJobs
+    }
+
     await persistTelemetry({
-      qualityJobs: qualityFiltered,
+      qualityJobs: [],
       finalJobs: [],
     })
-    throw new Error(
-      'No live jobs were scraped. Verify Playwright browser install and SCRAPE_TARGETS URLs.',
+    await safeNotify(
+      onStatus,
+      "We searched on the internet but couldn't find relevant jobs for this exact requirement yet. Please tweak the query or ask me to move further.",
     )
+    return []
   }
   await safeNotify(
     onStatus,
@@ -1508,37 +1588,20 @@ export const scrapeJobsWithPlaywright = async (profile, options = {}) => {
   )
 
   // Keep final set diverse so one source cannot dominate.
-  const groupedBySource = new Map()
-  for (const job of qualityFiltered) {
-    const sourceHost = getHostFromUrl(job.source)
-    if (!groupedBySource.has(sourceHost)) {
-      groupedBySource.set(sourceHost, [])
-    }
-    groupedBySource.get(sourceHost).push(job)
-  }
-
-  const sourceQueues = [...groupedBySource.values()].map((items) => items.slice(0, 4))
-  const diversifiedJobs = []
-  let keepIterating = true
-  while (keepIterating && diversifiedJobs.length < finalDiversifiedLimit) {
-    keepIterating = false
-    for (const queue of sourceQueues) {
-      if (queue.length === 0) continue
-      keepIterating = true
-      diversifiedJobs.push(queue.shift())
-      if (diversifiedJobs.length >= finalDiversifiedLimit) break
-    }
-  }
+  const { diversifiedJobs, sourceCount } = buildDiversifiedJobsBySource(
+    qualityFiltered,
+    finalDiversifiedLimit,
+  )
   await safeNotify(
     onStatus,
-    `Prepared ${diversifiedJobs.length} jobs from ${groupedBySource.size} sources.`,
+    `Prepared ${diversifiedJobs.length} jobs from ${sourceCount} sources.`,
   )
   debugLog('scrape completed', {
     rawCount: scraped.length,
     dedupedCount: deduped.length,
     qualityCount: qualityFiltered.length,
     finalCount: diversifiedJobs.length,
-    sourceCount: groupedBySource.size,
+    sourceCount,
     elapsedMs: Date.now() - scrapeStartedAt,
   })
 

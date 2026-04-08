@@ -14,6 +14,13 @@ import {
 import { normalizeScrapedJobs } from '../matching/jobNormalizer.js'
 import { scoreJobForProfile } from '../scoring/jobScorer.js'
 import { scrapeJobsWithPlaywright } from '../scraping/playwrightScraper.js'
+import { calculateTokensUsed } from '../token/tokenService.js'
+import {
+  buildTokenUsagePayload,
+  getLimitsForIdentity,
+  incrementUsageTokensAtomic,
+  normalizeUsageMeta,
+} from '../token/usageService.js'
 import { buildMatchedJobs } from './matchPipeline.js'
 import {
   clearSessionAbortSignal,
@@ -120,15 +127,58 @@ const buildContinuationPrompt = ({ foundJobs, strongJobs }) => {
   )
 }
 
-export const processSessionInBackground = async ({ sessionId, prompt, resumeText, profileSeed = null }) => {
+export const processSessionInBackground = async ({
+  sessionId,
+  prompt,
+  resumeText,
+  profileSeed = null,
+  usageMeta = null,
+}) => {
   const startedAt = Date.now()
   const abortSignal = createSessionAbortSignal(sessionId)
+  const normalizedUsageMeta = normalizeUsageMeta(usageMeta)
+  const usageLimits = getLimitsForIdentity(normalizedUsageMeta)
   let activePhase = 'initializing'
   let phaseStartedAt = Date.now()
   let phaseHeartbeat
   let structuredProfile = null
   const streamedJobs = []
   const streamedJobKeys = new Set()
+
+  const applyTokenUsage = async ({
+    inputText = '',
+    jobsReturned = [],
+    aiEnrichmentUsed = true,
+  } = {}) => {
+    const hasTrackableIdentity =
+      Boolean(normalizedUsageMeta?.userId) ||
+      (Boolean(normalizedUsageMeta?.isGuest) &&
+        Boolean(normalizedUsageMeta?.ipAddress) &&
+        normalizedUsageMeta.ipAddress !== 'unknown')
+    if (!hasTrackableIdentity) return null
+
+    const tokenStats = calculateTokensUsed({
+      inputText,
+      jobsReturned,
+      aiEnrichmentUsed,
+    })
+    try {
+      const updatedUsage = await incrementUsageTokensAtomic(
+        normalizedUsageMeta,
+        tokenStats.totalTokens,
+      )
+
+      return {
+        tokenStats,
+        tokenUsage: buildTokenUsagePayload({
+          usage: updatedUsage,
+          limits: usageLimits,
+        }),
+      }
+    } catch {
+      return null
+    }
+  }
 
   const throwIfAborted = () => {
     if (!abortSignal?.aborted) return
@@ -331,6 +381,14 @@ export const processSessionInBackground = async ({ sessionId, prompt, resumeText
       strongJobs: strongMatchStats.strongCount,
     })
     const finalSummary = `${summary}\n\n${continuationPrompt}`
+    const usageSnapshot = await applyTokenUsage({
+      inputText: normalizedUsageMeta?.inputText || prompt,
+      jobsReturned: filteredJobs,
+      aiEnrichmentUsed: true,
+    })
+    if (usageSnapshot) {
+      debugLog(sessionId, 'token usage updated', usageSnapshot)
+    }
 
     await runPhase('persist-session', 'Saving session results...', () =>
       ChatSession.findByIdAndUpdate(sessionId, {
@@ -405,6 +463,14 @@ export const processSessionInBackground = async ({ sessionId, prompt, resumeText
           },
         },
       })
+      const usageSnapshot = await applyTokenUsage({
+        inputText: normalizedUsageMeta?.inputText || prompt,
+        jobsReturned: partialSet.filteredJobs || [],
+        aiEnrichmentUsed: true,
+      })
+      if (usageSnapshot) {
+        debugLog(sessionId, 'token usage updated for stopped session', usageSnapshot)
+      }
 
       emitSessionStatus(sessionId, 'Search stopped by user.')
       emitFinalJobsSnapshot(sessionId, partialSet.filteredJobs || [])
