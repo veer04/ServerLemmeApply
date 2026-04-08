@@ -1,6 +1,7 @@
 import {
   buildTokenUsagePayload,
   getLimitsForIdentity,
+  lockHourlyCooldownFromHitTime,
   resolveUsageIdentityFromRequest,
   syncUsageWindow,
 } from '../services/token/usageService.js'
@@ -22,16 +23,28 @@ export const tokenLimitMiddleware = async (request, response, next) => {
     }
 
     if (hourlyExceeded || dailyExceeded) {
+      let blockedUsage = usage
+      if (hourlyExceeded) {
+        const cooldownLockedUsage = await lockHourlyCooldownFromHitTime(usage._id)
+        if (cooldownLockedUsage) {
+          blockedUsage = cooldownLockedUsage
+        }
+      }
+
       const isHourlyBlock = hourlyExceeded
-      const retryDate = isHourlyBlock ? usage.hourlyResetAt : usage.dailyResetAt
+      const retryDate = isHourlyBlock ? blockedUsage.hourlyResetAt : blockedUsage.dailyResetAt
       const baseMessage = isHourlyBlock ? 'Hourly limit reached' : 'Daily limit reached'
       const message = identity.isGuest ? `${baseMessage}. Login to continue.` : baseMessage
+      const blockedTokenUsage = buildTokenUsagePayload({
+        usage: blockedUsage,
+        limits,
+      })
 
       response.status(429).json({
         success: false,
         message,
         retryAt: getISTTime(retryDate),
-        tokenUsage: request.usageContext?.tokenUsage || null,
+        tokenUsage: blockedTokenUsage,
       })
       return
     }
