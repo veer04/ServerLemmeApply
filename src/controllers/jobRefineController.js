@@ -56,6 +56,37 @@ const mergeJobs = (existingJobs, incomingJobs, limit = 60) => {
   return merged
 }
 
+const MIN_JOB_RESULTS_TARGET = 5
+
+const topUpJobsToMinimum = ({ primaryJobs = [], scoredJobs = [], minimumCount = 5 }) => {
+  const seedJobs = Array.isArray(primaryJobs) ? primaryJobs : []
+  if (seedJobs.length >= minimumCount) return seedJobs
+
+  const seen = new Set(seedJobs.map((job) => buildJobKey(job)))
+  const extras = []
+  const ordered = [...(Array.isArray(scoredJobs) ? scoredJobs : [])].sort(
+    (left, right) => Number(right?.matchScore || 0) - Number(left?.matchScore || 0),
+  )
+
+  for (const job of ordered) {
+    const key = buildJobKey(job)
+    if (!key || seen.has(key)) continue
+    if (!String(job?.title || '').trim()) continue
+    if (!String(job?.applyLink || '').trim()) continue
+    if (Number(job?.matchScore || 0) < 20) continue
+
+    seen.add(key)
+    extras.push({
+      ...job,
+      scrapedAt: job?.scrapedAt || new Date(),
+    })
+
+    if (seedJobs.length + extras.length >= minimumCount) break
+  }
+
+  return [...seedJobs, ...extras]
+}
+
 const continuationInstructionRegex =
   /\b(move\s*further|continue|search\s*more|more\s*jobs|load\s*more|hunt\s*deeper|go\s*deeper|keep\s*searching|keep\s*going)\b/i
 
@@ -273,10 +304,30 @@ export const refineJobs = async (request, response, next) => {
       rescraped = true
     }
 
-    const finalJobs = matched.filteredJobs.map((job) => ({
+    if (!shouldLoadMore && matched.filteredJobs.length < MIN_JOB_RESULTS_TARGET) {
+      const recoveryScraped = await scrapeJobsWithPlaywright(refinedProfile, {
+        maxTargetsToScan: 24,
+        stopAfterJobs: 40,
+        perSourceCap: 7,
+        finalDiversifiedLimit: 40,
+      })
+      combinedRawJobs = [...combinedRawJobs, ...recoveryScraped]
+      matched = await buildMatchedJobs({
+        rawJobs: combinedRawJobs,
+        profile: refinedProfile,
+      })
+      rescraped = true
+    }
+
+    const finalJobsSeed = matched.filteredJobs.map((job) => ({
       ...job,
       scrapedAt: new Date(),
     }))
+    const finalJobs = topUpJobsToMinimum({
+      primaryJobs: finalJobsSeed,
+      scoredJobs: matched.scoredJobs,
+      minimumCount: shouldLoadMore ? 3 : MIN_JOB_RESULTS_TARGET,
+    })
     const existingKeys = new Set(existingJobs.map((job) => buildJobKey(job)))
     const additionalJobs = matched.scoredJobs
       .filter((job) => !existingKeys.has(buildJobKey(job)))

@@ -65,8 +65,42 @@ const INITIAL_SCRAPE_GOAL = 15
 const DEEP_SCRAPE_GOAL = 34
 const INITIAL_SOURCE_CAP = 12
 const DEEP_SOURCE_CAP = 24
+const MIN_JOB_RESULTS_TARGET = 5
 const MIN_STRONG_MATCH_COUNT = 2
 const MIN_STRONG_MATCH_RATIO = 0.25
+
+const topUpJobsToMinimum = ({
+  primaryJobs = [],
+  scoredJobs = [],
+  minimumCount = MIN_JOB_RESULTS_TARGET,
+}) => {
+  const safePrimary = Array.isArray(primaryJobs) ? primaryJobs : []
+  if (safePrimary.length >= minimumCount) return safePrimary
+
+  const seen = new Set(safePrimary.map((job) => buildJobKey(job)))
+  const fallbackJobs = []
+  const orderedScoredJobs = [...(Array.isArray(scoredJobs) ? scoredJobs : [])].sort(
+    (left, right) => Number(right?.matchScore || 0) - Number(left?.matchScore || 0),
+  )
+
+  for (const job of orderedScoredJobs) {
+    const key = buildJobKey(job)
+    if (!key || seen.has(key)) continue
+    if (!String(job?.title || '').trim()) continue
+    if (!String(job?.applyLink || '').trim()) continue
+    if (Number(job?.matchScore || 0) < 20) continue
+
+    seen.add(key)
+    fallbackJobs.push({
+      ...job,
+      scrapedAt: job?.scrapedAt || new Date(),
+    })
+
+    if (safePrimary.length + fallbackJobs.length >= minimumCount) break
+  }
+
+  return [...safePrimary, ...fallbackJobs]
+}
 
 const toSortedFiniteNumbers = (values) =>
   (Array.isArray(values) ? values : [])
@@ -115,16 +149,18 @@ const getStrongMatchStats = (jobs) => {
 
 const buildContinuationPrompt = ({ foundJobs, strongJobs }) => {
   if (foundJobs <= 0 || strongJobs <= 0) {
-    return (
-      'I could not find strongly relevant openings for this exact query yet. ' +
-      'You can tweak your query, or ask me to hunt deeper by saying "move further".'
-    )
+    return [
+      'Update:',
+      '- I could not find strongly relevant openings for this exact query yet',
+      '- You can tweak the query, or ask me to hunt deeper by saying "move further"',
+    ].join('\n')
   }
 
-  return (
-    `I paused after collecting ${foundJobs} jobs (${strongJobs} strong matches) to keep load efficient. ` +
-    'Want me to continue searching deeper? Say "move further".'
-  )
+  return [
+    'Update:',
+    `- I paused after collecting ${foundJobs} jobs (${strongJobs} strong matches) to keep load efficient`,
+    '- Want me to continue searching deeper? Say "move further"',
+  ].join('\n')
 }
 
 export const processSessionInBackground = async ({
@@ -347,10 +383,54 @@ export const processSessionInBackground = async ({
       })
     }
 
-    const filteredJobs = matched.filteredJobs.map((job) => ({
+    if (matched.filteredJobs.length < MIN_JOB_RESULTS_TARGET) {
+      const recoveryScrapedJobs = await runPhase(
+        'scraping-recovery',
+        `Low relevant-job count (${matched.filteredJobs.length}). Expanding search further...`,
+        () =>
+          scrapeJobsWithPlaywright(structuredProfile, {
+            abortSignal,
+            maxTargetsToScan: Math.min(30, DEEP_SOURCE_CAP + 4),
+            stopAfterJobs: Math.max(DEEP_SCRAPE_GOAL, 42),
+            perSourceCap: 7,
+            finalDiversifiedLimit: 42,
+            onStatus: (statusMessage) => {
+              emitSessionStatus(sessionId, statusMessage)
+            },
+            onTargetJobs: appendStreamedJobs,
+          }),
+      )
+
+      combinedScrapedJobs = mergeUniqueJobs(combinedScrapedJobs, recoveryScrapedJobs, 280)
+      matched = await runPhase(
+        'ai-filter-ranking-recovery',
+        'Re-evaluating expanded pool for more relevant matches...',
+        () =>
+          buildMatchedJobs({
+            rawJobs: combinedScrapedJobs,
+            profile: structuredProfile,
+          }),
+      )
+      strongMatchStats = getStrongMatchStats(matched.filteredJobs)
+      debugLog(sessionId, 'recovery matching snapshot', {
+        normalizedJobs: matched.normalizedJobs.length,
+        scoredJobs: matched.scoredJobs.length,
+        filteredJobs: matched.filteredJobs.length,
+        averageMatchScore: matched.averageMatchScore,
+        strongCount: strongMatchStats.strongCount,
+        minStrongRequired: strongMatchStats.minStrongRequired,
+      })
+    }
+
+    const primaryFilteredJobs = matched.filteredJobs.map((job) => ({
       ...job,
       scrapedAt: new Date(),
     }))
+    const filteredJobs = topUpJobsToMinimum({
+      primaryJobs: primaryFilteredJobs,
+      scoredJobs: matched.scoredJobs,
+      minimumCount: MIN_JOB_RESULTS_TARGET,
+    })
     const mergedJobs = mergeUniqueJobs(streamedJobs, filteredJobs, 60)
 
     setPhase('final-streaming', 'Finalizing top matches...')
@@ -380,7 +460,7 @@ export const processSessionInBackground = async ({
       foundJobs: filteredJobs.length,
       strongJobs: strongMatchStats.strongCount,
     })
-    const finalSummary = `${summary}\n\n${continuationPrompt}`
+    const finalSummary = `${summary}\n${continuationPrompt}`
     const usageSnapshot = await applyTokenUsage({
       inputText: normalizedUsageMeta?.inputText || prompt,
       jobsReturned: filteredJobs,

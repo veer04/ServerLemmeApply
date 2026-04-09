@@ -6,13 +6,24 @@ import { mergeExtractedProfile } from '../context/contextService.js'
 const { INTENTS } = intentConstants
 
 const AFFIRMATIVE_INTENT_REGEX =
-  /^(yes|yeah|yep|sure|okay|ok|go ahead|continue|move further|search now|find now)$/i
+  /^(yes|yeah|yep|sure|go ahead|continue|move further|search now|find now|start search)$/i
+const LIGHT_ACK_REGEX = /^(ok|okay|cool|got it|understood|noted|fine|thanks|thank you)$/i
 const GENERIC_JOB_REQUEST_REGEX =
   /\b(looking\s+for\s+jobs?|find\s+jobs?|search\s+jobs?|want\s+jobs?|need\s+a\s+job|openings?|vacancies?|job opportunities?)\b/i
 const EXPLICIT_SEARCH_ACTION_REGEX =
   /\b(find|search|show|start|fetch|get|look\s+for|hunt)\b/i
+const CONTINUE_SEARCH_ACTION_REGEX =
+  /\b(move\s*further|continue|search\s*more|more\s*jobs|load\s*more|hunt\s*deeper|go\s*deeper|keep\s*searching|keep\s*going)\b/i
 const PROFILE_ONLY_UPDATE_REGEX =
   /\b(i\s+know|my\s+skills?|i\s+have\s+\d+\+?\s*(?:years?|yrs?)|my\s+experience|i\s+am\s+from|location\s+is|preferred\s+location)\b/i
+
+const PENDING_ACTIONS = {
+  NONE: '',
+  CONFIRM_JOB_SEARCH: 'CONFIRM_JOB_SEARCH',
+  CONFIRM_CONTINUE_SEARCH: 'CONFIRM_CONTINUE_SEARCH',
+  PROVIDE_SEARCH_DETAILS: 'PROVIDE_SEARCH_DETAILS',
+  CLARIFY_INTENT: 'CLARIFY_INTENT',
+}
 
 const cleanText = (value) =>
   String(value || '')
@@ -104,26 +115,36 @@ const shouldTriggerScraping = ({
   profile,
   message,
   extractedData,
-  userContext,
+  contextSignals = {},
 }) => {
   if (intent !== INTENTS.JOB_SEARCH) return false
   if (Number(confidence || 0) <= 0.6) return false
+
+  const normalizedMessage = cleanText(message)
+  const confirmedByContext = Boolean(contextSignals?.confirmedJobSearch)
+  const hasExplicitSearchAction =
+    EXPLICIT_SEARCH_ACTION_REGEX.test(normalizedMessage) ||
+    CONTINUE_SEARCH_ACTION_REGEX.test(normalizedMessage)
+  const explicitRoleThisTurn = hasStrongRole(extractedData?.role)
+  const explicitSkillThisTurn =
+    Array.isArray(extractedData?.skills) && extractedData.skills.length > 0
+  const hasFreshSearchPayload = explicitRoleThisTurn || explicitSkillThisTurn
+
+  if (!hasExplicitSearchAction && !hasFreshSearchPayload && !confirmedByContext) {
+    return false
+  }
 
   const hasRole = hasStrongRole(profile?.role)
   const skills = Array.isArray(profile?.skills) ? profile.skills : []
   const skillCount = skills.length
   if (!hasRole && skillCount <= 0) return false
 
-  const broadRequest = isGenericJobRequest(message)
-  const explicitRoleThisTurn = hasStrongRole(extractedData?.role)
-  const explicitSkillThisTurn =
-    Array.isArray(extractedData?.skills) && extractedData.skills.length > 0
-  const priorIntent = cleanText(userContext?.lastIntent).toUpperCase()
+  const broadRequest = isGenericJobRequest(normalizedMessage)
 
   if (broadRequest && !hasRole) {
     if (explicitRoleThisTurn) return true
     if (explicitSkillThisTurn && skillCount > 0) return true
-    if (priorIntent === INTENTS.JOB_SEARCH && skillCount > 0) return true
+    if (confirmedByContext && skillCount > 0) return true
     return false
   }
 
@@ -227,35 +248,64 @@ Known user profile: ${JSON.stringify(searchProfile)}
 
 const resolveIntentWithContext = (message, userContext, intentResult) => {
   const normalizedMessage = cleanText(message)
-  const priorIntent = cleanText(userContext?.lastIntent).toUpperCase()
   const pendingAction = cleanText(userContext?.pendingAction).toUpperCase()
   const isAffirmative = AFFIRMATIVE_INTENT_REGEX.test(normalizedMessage)
+  const isLightAck = LIGHT_ACK_REGEX.test(normalizedMessage)
   const hasKnownProfile =
     Boolean(cleanText(userContext?.extractedProfile?.role)) ||
     (Array.isArray(userContext?.extractedProfile?.skills) &&
       userContext.extractedProfile.skills.length > 0)
+  const canConfirmSearch = [
+    PENDING_ACTIONS.CONFIRM_JOB_SEARCH,
+    PENDING_ACTIONS.CONFIRM_CONTINUE_SEARCH,
+  ].includes(pendingAction)
 
   if (
     isAffirmative &&
     hasKnownProfile &&
-    [INTENTS.SMALL_TALK, INTENTS.CAREER_QUERY, INTENTS.UNKNOWN, ''].includes(intentResult.intent)
+    canConfirmSearch &&
+    [
+      INTENTS.SMALL_TALK,
+      INTENTS.CAREER_QUERY,
+      INTENTS.ACKNOWLEDGEMENT,
+      INTENTS.UNKNOWN,
+      '',
+    ].includes(intentResult.intent)
   ) {
-    if (pendingAction === 'JOB_SEARCH' || priorIntent === INTENTS.JOB_SEARCH) {
-      return {
-        ...intentResult,
-        intent: INTENTS.JOB_SEARCH,
-        confidence: Math.max(0.74, Number(intentResult.confidence || 0)),
-      }
+    return {
+      ...intentResult,
+      intent: INTENTS.JOB_SEARCH,
+      confidence: Math.max(0.74, Number(intentResult.confidence || 0)),
+      contextSignals: {
+        confirmedJobSearch: true,
+      },
     }
   }
 
-  return intentResult
+  if (isLightAck && canConfirmSearch) {
+    return {
+      ...intentResult,
+      intent: INTENTS.ACKNOWLEDGEMENT,
+      confidence: Math.max(0.86, Number(intentResult.confidence || 0)),
+      contextSignals: {
+        confirmedJobSearch: false,
+      },
+    }
+  }
+
+  return {
+    ...intentResult,
+    contextSignals: {
+      confirmedJobSearch: false,
+    },
+  }
 }
 
 export const handleUserMessage = async (message, userContext = {}) => {
   const normalizedMessage = cleanText(message)
   const intentDetection = await detectUserIntent(normalizedMessage, { enableAi: true })
   const intentResult = resolveIntentWithContext(normalizedMessage, userContext, intentDetection)
+  const pendingAction = cleanText(userContext?.pendingAction).toUpperCase()
   const searchProfile = buildSearchProfile(userContext.extractedProfile, intentResult.extractedData)
   const searchPrompt = buildJobSearchPrompt(searchProfile, normalizedMessage)
   const profileOnlyUpdate = isProfileOnlyUpdate(normalizedMessage, intentResult.intent)
@@ -265,8 +315,54 @@ export const handleUserMessage = async (message, userContext = {}) => {
     profile: searchProfile,
     message: normalizedMessage,
     extractedData: intentResult.extractedData,
-    userContext,
+    contextSignals: intentResult.contextSignals,
   })
+
+  if (intentResult.intent === INTENTS.ACKNOWLEDGEMENT && !scrapingAllowed) {
+    const hasProfileHints =
+      Boolean(searchProfile.role) ||
+      (Array.isArray(searchProfile.skills) && searchProfile.skills.length > 0)
+    const waitingForSearchConfirmation = pendingAction === PENDING_ACTIONS.CONFIRM_JOB_SEARCH
+    const waitingForDetails = pendingAction === PENDING_ACTIONS.PROVIDE_SEARCH_DETAILS
+
+    if (waitingForDetails) {
+      return {
+        type: 'FOLLOW_UP',
+        message: buildFollowUpMessage(searchProfile),
+        jobs: [],
+        suggestions: buildFollowUpSuggestions(searchProfile),
+        shouldScrape: false,
+        intent: INTENTS.ACKNOWLEDGEMENT,
+        confidence: intentResult.confidence,
+        extractedData: intentResult.extractedData,
+        mergedProfile: searchProfile,
+        searchPrompt,
+        pendingAction: PENDING_ACTIONS.PROVIDE_SEARCH_DETAILS,
+      }
+    }
+
+    return {
+      type: 'CHAT',
+      message:
+        waitingForSearchConfirmation && hasProfileHints
+          ? 'Noted. If you want me to start searching now, say "search jobs now" or share role/skills/location.'
+          : 'Got it. I can help with job search or career guidance whenever you want.',
+      jobs: [],
+      suggestions:
+        waitingForSearchConfirmation && hasProfileHints
+          ? ['Search jobs now', 'Update location', 'Update skills']
+          : ['Find jobs now', 'Career guidance', 'Resume tips'],
+      shouldScrape: false,
+      intent: INTENTS.ACKNOWLEDGEMENT,
+      confidence: intentResult.confidence,
+      extractedData: intentResult.extractedData,
+      mergedProfile: searchProfile,
+      searchPrompt,
+      pendingAction: waitingForSearchConfirmation
+        ? PENDING_ACTIONS.CONFIRM_JOB_SEARCH
+        : PENDING_ACTIONS.CLARIFY_INTENT,
+    }
+  }
 
   if (intentResult.intent === INTENTS.SMALL_TALK && !scrapingAllowed) {
     const hasProfileHints =
@@ -286,7 +382,9 @@ export const handleUserMessage = async (message, userContext = {}) => {
       extractedData: intentResult.extractedData,
       mergedProfile: searchProfile,
       searchPrompt,
-      pendingAction: 'JOB_SEARCH',
+      pendingAction: hasProfileHints
+        ? PENDING_ACTIONS.CONFIRM_JOB_SEARCH
+        : PENDING_ACTIONS.CLARIFY_INTENT,
     }
   }
 
@@ -303,7 +401,7 @@ export const handleUserMessage = async (message, userContext = {}) => {
       extractedData: intentResult.extractedData,
       mergedProfile: searchProfile,
       searchPrompt,
-      pendingAction: 'JOB_SEARCH',
+      pendingAction: PENDING_ACTIONS.CONFIRM_JOB_SEARCH,
     }
   }
 
@@ -328,7 +426,7 @@ export const handleUserMessage = async (message, userContext = {}) => {
         extractedData: intentResult.extractedData,
         mergedProfile: searchProfile,
         searchPrompt,
-        pendingAction: 'JOB_SEARCH',
+        pendingAction: PENDING_ACTIONS.CONFIRM_JOB_SEARCH,
       }
     }
 
@@ -347,7 +445,7 @@ export const handleUserMessage = async (message, userContext = {}) => {
         extractedData: intentResult.extractedData,
         mergedProfile: searchProfile,
         searchPrompt,
-        pendingAction: '',
+        pendingAction: PENDING_ACTIONS.NONE,
       }
     }
 
@@ -362,7 +460,7 @@ export const handleUserMessage = async (message, userContext = {}) => {
       extractedData: intentResult.extractedData,
       mergedProfile: searchProfile,
       searchPrompt,
-      pendingAction: 'JOB_SEARCH',
+      pendingAction: PENDING_ACTIONS.PROVIDE_SEARCH_DETAILS,
     }
   }
 
@@ -377,7 +475,7 @@ export const handleUserMessage = async (message, userContext = {}) => {
     extractedData: intentResult.extractedData,
     mergedProfile: searchProfile,
     searchPrompt,
-    pendingAction: 'JOB_SEARCH',
+    pendingAction: PENDING_ACTIONS.CLARIFY_INTENT,
   }
 }
 

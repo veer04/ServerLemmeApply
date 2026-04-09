@@ -1072,7 +1072,9 @@ Constraints:
 - Tone: professional and helpful
 - Mention 3 strongest role fits
 - Do not use markdown symbols like *, **, or headings
-- Keep output plain conversational text
+- Keep output pointwise using short numbered lines when listing roles
+- Avoid extra spacing: maximum one blank line in the full response
+- Use paragraph style only when brief explanation is necessary
 `
 
     const text = await generateWithVertex({

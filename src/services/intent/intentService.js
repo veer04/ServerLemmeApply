@@ -5,6 +5,7 @@ const INTENTS = {
   JOB_SEARCH: 'JOB_SEARCH',
   CAREER_QUERY: 'CAREER_QUERY',
   SMALL_TALK: 'SMALL_TALK',
+  ACKNOWLEDGEMENT: 'ACKNOWLEDGEMENT',
   UNKNOWN: 'UNKNOWN',
 }
 
@@ -54,6 +55,19 @@ const SMALL_TALK_KEYWORDS = [
   'good morning',
   'good evening',
   'my name is',
+]
+
+const ACKNOWLEDGEMENT_KEYWORDS = [
+  'ok',
+  'okay',
+  'alright',
+  'cool',
+  'got it',
+  'understood',
+  'noted',
+  'thanks',
+  'thank you',
+  'fine',
 ]
 
 const ROLE_HINTS = [
@@ -182,6 +196,21 @@ const SMALL_TALK_EXACT = new Set([
   'hii',
   'yo',
   'sup',
+])
+
+const ACKNOWLEDGEMENT_EXACT = new Set([
+  'ok',
+  'okay',
+  'okk',
+  'k',
+  'kk',
+  'cool',
+  'got it',
+  'understood',
+  'noted',
+  'fine',
+  'thanks',
+  'thank you',
 ])
 
 const INTENT_CLASSIFIER_CACHE_TTL_MS = 1000 * 60 * 20
@@ -358,6 +387,26 @@ const keywordScore = (message, keywordList) => {
 
 const clampConfidence = (value) => Math.max(0, Math.min(1, Number(value) || 0))
 
+const isShortAcknowledgement = (message) => {
+  const lowered = normalizePhrase(message)
+  if (!lowered) return false
+
+  if (
+    /\b(find|search|job|jobs|opening|openings|vacancy|vacancies|role|roles|career|guidance|resume|interview|learn)\b/.test(
+      lowered,
+    )
+  ) {
+    return false
+  }
+
+  const wordCount = lowered.split(/\s+/).filter(Boolean).length
+  if (wordCount > 4) return false
+  if (ACKNOWLEDGEMENT_EXACT.has(lowered)) return true
+  return ACKNOWLEDGEMENT_KEYWORDS.some((keyword) =>
+    new RegExp(`\\b${keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(lowered),
+  )
+}
+
 const parseJsonFromText = (rawText) => {
   const cleaned = String(rawText || '').replace(/```json|```/gi, '').trim()
   const firstJsonIndex = cleaned.indexOf('{')
@@ -389,6 +438,14 @@ const detectByKeywords = (message) => {
     return {
       intent: INTENTS.UNKNOWN,
       confidence: 0,
+      extractedData,
+    }
+  }
+
+  if (isShortAcknowledgement(lowered)) {
+    return {
+      intent: INTENTS.ACKNOWLEDGEMENT,
+      confidence: 0.92,
       extractedData,
     }
   }
@@ -454,6 +511,7 @@ Classify user message into one intent:
 - JOB_SEARCH
 - CAREER_QUERY
 - SMALL_TALK
+- ACKNOWLEDGEMENT
 - UNKNOWN
 
 Also extract:

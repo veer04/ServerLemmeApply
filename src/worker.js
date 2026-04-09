@@ -19,13 +19,13 @@ const startWorker = async () => {
 
   // eslint-disable-next-line no-console
   console.log(
-    `Aaply session worker started. queue=${workerStatus.queueName} concurrency=${Math.max(1, Number(env.sessionQueueConcurrency || 2))}`,
+    `LemmeApply session worker started. queue=${workerStatus.queueName} concurrency=${Math.max(1, Number(env.sessionQueueConcurrency || 2))}`,
   )
 }
 
 startWorker().catch((error) => {
   // eslint-disable-next-line no-console
-  console.error('Failed to start Aaply session worker:', error)
+  console.error('Failed to start LemmeApply session worker:', error)
   process.exit(1)
 })
 
