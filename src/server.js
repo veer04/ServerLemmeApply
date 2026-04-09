@@ -21,7 +21,7 @@ const startServer = async () => {
 
   app.listen(env.port, () => {
     // eslint-disable-next-line no-console
-    console.log(`Aaply API running on http://localhost:${env.port}`)
+    console.log(`LemmeApply API running on http://localhost:${env.port}`)
     // eslint-disable-next-line no-console
     console.log(`Session processing dispatch mode: ${getSessionDispatchMode()}`)
     if (redisStatus.enabled) {
@@ -43,6 +43,6 @@ const startServer = async () => {
 
 startServer().catch((error) => {
   // eslint-disable-next-line no-console
-  console.error('Failed to start Aaply API:', error)
+  console.error('Failed to start LemmeApply API:', error)
   process.exit(1)
 })

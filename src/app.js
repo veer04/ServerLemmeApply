@@ -24,7 +24,7 @@ app.use('/uploads', express.static(path.resolve(process.cwd(), 'uploads')))
 app.get('/api/health', (_request, response) => {
   response.json({
     status: 'ok',
-    service: 'Aaply Hiring Assistant API',
+    service: 'LemmeApply Hiring Assistant API',
   })
 })
 
