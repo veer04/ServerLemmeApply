@@ -11,9 +11,26 @@ import { streamRouter } from './routes/streamRoutes.js'
 
 export const app = express()
 
+const allowedOrigins = new Set(env.clientOrigins)
+const resolveRequestOrigin = (origin) => {
+  try {
+    const parsed = new URL(String(origin || '').trim())
+    return `${parsed.protocol}//${parsed.host}`
+  } catch {
+    return ''
+  }
+}
+
 app.use(
   cors({
-    origin: env.clientOrigin,
+    origin: (origin, callback) => {
+      if (!origin) {
+        callback(null, true)
+        return
+      }
+      const normalizedOrigin = resolveRequestOrigin(origin)
+      callback(null, Boolean(normalizedOrigin && allowedOrigins.has(normalizedOrigin)))
+    },
   }),
 )
 

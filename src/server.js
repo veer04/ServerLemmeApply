@@ -7,9 +7,6 @@ import {
   startSessionQueueWorker,
 } from './services/session/sessionQueue.js'
 
-process.env.GOOGLE_APPLICATION_CREDENTIALS =
-  process.env.GOOGLE_APPLICATION_CREDENTIALS || './src/config/gcp-key.json'
-
 const startServer = async () => {
   if (env.nodeEnv === 'production' && env.jwtSecret === 'dev_jwt_secret_change_me') {
     throw new Error('JWT_SECRET must be configured in production.')
