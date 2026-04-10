@@ -3,9 +3,6 @@ import { env } from './config/environment.js'
 import { initRedisRealtime } from './services/infrastructure/redisRealtime.js'
 import { startSessionQueueWorker } from './services/session/sessionQueue.js'
 
-process.env.GOOGLE_APPLICATION_CREDENTIALS =
-  process.env.GOOGLE_APPLICATION_CREDENTIALS || './src/config/gcp-key.json'
-
 const startWorker = async () => {
   await connectDatabase()
   await initRedisRealtime()

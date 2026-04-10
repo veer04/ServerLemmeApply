@@ -1,13 +1,7 @@
 import dotenv from 'dotenv'
 import fs from 'node:fs'
-import path from 'node:path'
 
 dotenv.config()
-
-const defaultGcpCredentialsPath = path.resolve(process.cwd(), 'src/config/gcp-key.json')
-if (!process.env.GOOGLE_APPLICATION_CREDENTIALS && fs.existsSync(defaultGcpCredentialsPath)) {
-  process.env.GOOGLE_APPLICATION_CREDENTIALS = defaultGcpCredentialsPath
-}
 
 const inferProjectIdFromCredentials = () => {
   try {
@@ -30,6 +24,22 @@ const parseTargets = (rawTargets) => {
     .filter(Boolean)
 }
 
+const parseOrigins = (rawOrigins) => {
+  return [...new Set(
+    parseTargets(rawOrigins)
+      .map((origin) => {
+        try {
+          const parsed = new URL(String(origin || '').trim())
+          if (!/^https?:$/i.test(parsed.protocol)) return ''
+          return `${parsed.protocol}//${parsed.host}`
+        } catch {
+          return ''
+        }
+      })
+      .filter(Boolean),
+  )]
+}
+
 const parseBoolean = (value, fallback = false) => {
   if (value === undefined || value === null || value === '') return fallback
   return ['1', 'true', 'yes', 'on'].includes(String(value).toLowerCase())
@@ -39,6 +49,9 @@ const parseNumber = (value, fallback) => {
   const numeric = Number(value)
   return Number.isFinite(numeric) ? numeric : fallback
 }
+
+const defaultClientOrigin = 'http://localhost:5173'
+const clientOrigins = parseOrigins(process.env.CLIENT_ORIGIN || defaultClientOrigin)
 
 export const env = {
   nodeEnv: process.env.NODE_ENV || 'development',
@@ -51,7 +64,8 @@ export const env = {
   sessionQueueName: String(process.env.SESSION_QUEUE_NAME || 'aaply-session-processing').trim(),
   sessionQueueConcurrency: parseNumber(process.env.SESSION_QUEUE_CONCURRENCY, 2),
   sessionWorkerEnabled: parseBoolean(process.env.SESSION_WORKER_ENABLED, false),
-  clientOrigin: process.env.CLIENT_ORIGIN || 'http://localhost:5173',
+  clientOrigins,
+  clientOrigin: clientOrigins[0] || '',
   jwtSecret: String(process.env.JWT_SECRET || 'dev_jwt_secret_change_me').trim(),
   jwtExpiresIn: String(process.env.JWT_EXPIRES_IN || '7d').trim(),
   otpExpiryMinutes: parseNumber(process.env.OTP_EXPIRY_MINUTES, 5),
@@ -78,3 +92,39 @@ export const env = {
   resumeOcrEnabled: parseBoolean(process.env.RESUME_OCR_ENABLED, true),
   scrapeTargets: parseTargets(process.env.SCRAPE_TARGETS),
 }
+
+const assertProductionEnvironment = (resolvedEnv) => {
+  if (resolvedEnv.nodeEnv !== 'production') return
+
+  const missing = []
+  if (!String(process.env.MONGODB_URI || '').trim()) {
+    missing.push('MONGODB_URI')
+  }
+  if (!String(process.env.CLIENT_ORIGIN || '').trim()) {
+    missing.push('CLIENT_ORIGIN')
+  }
+  if (!String(process.env.JWT_SECRET || '').trim() || resolvedEnv.jwtSecret === 'dev_jwt_secret_change_me') {
+    missing.push('JWT_SECRET')
+  }
+  if (!String(process.env.VERTEX_PROJECT_ID || process.env.GCP_PROJECT_ID || '').trim()) {
+    missing.push('VERTEX_PROJECT_ID (or GCP_PROJECT_ID)')
+  }
+
+  if (missing.length > 0) {
+    throw new Error(`Missing required production environment variables: ${missing.join(', ')}`)
+  }
+
+  if (!['inline', 'queue'].includes(resolvedEnv.sessionDispatchMode)) {
+    throw new Error('SESSION_DISPATCH_MODE must be either "inline" or "queue".')
+  }
+
+  if (resolvedEnv.clientOrigins.length === 0) {
+    throw new Error('CLIENT_ORIGIN must include at least one valid http/https origin.')
+  }
+
+  if (resolvedEnv.sessionDispatchMode === 'queue' && !resolvedEnv.redisUrl) {
+    throw new Error('REDIS_URL is required when SESSION_DISPATCH_MODE=queue.')
+  }
+}
+
+assertProductionEnvironment(env)
