@@ -1336,7 +1336,19 @@ export const scrapeJobsWithPlaywright = async (profile, options = {}) => {
 
   try {
     throwIfAborted()
-    browser = await chromium.launch({ headless: true })
+    const launchOptions = {
+      headless: true,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+      ],
+    }
+    const configuredExecutablePath = String(process.env.PLAYWRIGHT_EXECUTABLE_PATH || '').trim()
+    if (configuredExecutablePath) {
+      launchOptions.executablePath = configuredExecutablePath
+    }
+    browser = await chromium.launch(launchOptions)
     debugLog('browser launched', {
       targets: targets.length,
       timeoutMs: targetTimeoutMs,
@@ -1344,6 +1356,7 @@ export const scrapeJobsWithPlaywright = async (profile, options = {}) => {
       perSourceCap,
       maxParallelPages,
       maxSourceRetries,
+      hasCustomExecutablePath: Boolean(configuredExecutablePath),
     })
 
     let queueCursor = 0
@@ -1486,8 +1499,17 @@ export const scrapeJobsWithPlaywright = async (profile, options = {}) => {
   } catch (error) {
     if (error?.name === 'AbortError') throw error
     // Browser launch issues are surfaced as scrape failure below.
-    debugLog('browser launch failed', {})
-    await safeNotify(onStatus, 'Browser launch failed while scraping sources.')
+    const launchErrorMessage = String(error?.message || 'unknown browser launch error')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 220)
+    debugLog('browser launch failed', {
+      reason: launchErrorMessage,
+    })
+    await safeNotify(
+      onStatus,
+      `Browser launch failed while scraping sources. ${launchErrorMessage}`,
+    )
   } finally {
     if (browser) {
       await browser.close()
