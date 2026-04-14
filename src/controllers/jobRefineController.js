@@ -56,11 +56,16 @@ const mergeJobs = (existingJobs, incomingJobs, limit = 60) => {
   return merged
 }
 
-const MIN_JOB_RESULTS_TARGET = 5
+const MIN_JOB_RESULTS_TARGET = 6
+const REFINE_FINAL_JOB_TARGET = 10
 const REFINE_PRIMARY_SCRAPE_TIMEOUT_MS = 34000
 const REFINE_RECOVERY_SCRAPE_TIMEOUT_MS = 18000
 
-const topUpJobsToMinimum = ({ primaryJobs = [], scoredJobs = [], minimumCount = 5 }) => {
+const topUpJobsToMinimum = ({
+  primaryJobs = [],
+  scoredJobs = [],
+  minimumCount = MIN_JOB_RESULTS_TARGET,
+}) => {
   const seedJobs = Array.isArray(primaryJobs) ? primaryJobs : []
   if (seedJobs.length >= minimumCount) return seedJobs
 
@@ -75,7 +80,7 @@ const topUpJobsToMinimum = ({ primaryJobs = [], scoredJobs = [], minimumCount = 
     if (!key || seen.has(key)) continue
     if (!String(job?.title || '').trim()) continue
     if (!String(job?.applyLink || '').trim()) continue
-    if (Number(job?.matchScore || 0) < 20) continue
+    if (Number(job?.matchScore || 0) < 12) continue
 
     seen.add(key)
     extras.push({
@@ -315,15 +320,16 @@ export const refineJobs = async (request, response, next) => {
           profile: refinedProfile,
           timeoutMs: REFINE_PRIMARY_SCRAPE_TIMEOUT_MS,
           options: {
-            maxTargetsToScan: shouldLoadMore ? 18 : 12,
-            stopAfterJobs: shouldLoadMore ? 26 : 16,
+            maxTargetsToScan: shouldLoadMore ? 14 : 10,
+            stopAfterJobs: shouldLoadMore ? 20 : 14,
             perSourceCap: shouldLoadMore ? 5 : 4,
-            finalDiversifiedLimit: shouldLoadMore ? 30 : 20,
+            finalDiversifiedLimit: shouldLoadMore ? 24 : 16,
             maxParallelPages: 4,
-            maxSourceRetries: 1,
+            maxSourceRetries: 0,
             maxAutoRounds: 1,
             targetTimeoutMs: shouldLoadMore ? 10000 : 8500,
             dynamicTargetTimeoutMs: 7000,
+            useDynamicTargets: false,
           },
         })
       } catch (error) {
@@ -353,6 +359,7 @@ export const refineJobs = async (request, response, next) => {
             maxAutoRounds: 1,
             targetTimeoutMs: 7500,
             dynamicTargetTimeoutMs: 5000,
+            useDynamicTargets: false,
           },
         })
       } catch (error) {
@@ -368,17 +375,19 @@ export const refineJobs = async (request, response, next) => {
 
     const finalJobsSeed = matched.filteredJobs.map((job) => ({
       ...job,
-      scrapedAt: new Date(), 
+      scrapedAt: new Date(),
     }))
     const finalJobs = topUpJobsToMinimum({
       primaryJobs: finalJobsSeed,
       scoredJobs: matched.scoredJobs,
-      minimumCount: shouldLoadMore ? 3 : MIN_JOB_RESULTS_TARGET,
+      minimumCount: shouldLoadMore ? 8 : REFINE_FINAL_JOB_TARGET,
     })
+      .sort((left, right) => Number(right?.matchScore || 0) - Number(left?.matchScore || 0))
+      .slice(0, shouldLoadMore ? 8 : REFINE_FINAL_JOB_TARGET)
     const existingKeys = new Set(existingJobs.map((job) => buildJobKey(job)))
     const additionalJobs = matched.scoredJobs
       .filter((job) => !existingKeys.has(buildJobKey(job)))
-      .slice(0, 12)
+      .slice(0, 10)
       .map((job) => ({
         ...job,
         scrapedAt: new Date(),

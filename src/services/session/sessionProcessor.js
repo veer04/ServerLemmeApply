@@ -61,11 +61,12 @@ const mergeUniqueJobs = (existingJobs, incomingJobs, limit = 60) => {
   return merged
 }
 
-const INITIAL_SCRAPE_GOAL = 15
-const DEEP_SCRAPE_GOAL = 34
-const INITIAL_SOURCE_CAP = 12
-const DEEP_SOURCE_CAP = 24
-const MIN_JOB_RESULTS_TARGET = 5
+const INITIAL_SCRAPE_GOAL = 18
+const DEEP_SCRAPE_GOAL = 24
+const INITIAL_SOURCE_CAP = 9
+const DEEP_SOURCE_CAP = 16
+const MIN_JOB_RESULTS_TARGET = 6
+const FINAL_JOB_RESULTS_TARGET = 10
 const MIN_STRONG_MATCH_COUNT = 2
 const MIN_STRONG_MATCH_RATIO = 0.25
 
@@ -88,7 +89,7 @@ const topUpJobsToMinimum = ({
     if (!key || seen.has(key)) continue
     if (!String(job?.title || '').trim()) continue
     if (!String(job?.applyLink || '').trim()) continue
-    if (Number(job?.matchScore || 0) < 20) continue
+    if (Number(job?.matchScore || 0) < 12) continue
 
     seen.add(key)
     fallbackJobs.push({
@@ -175,6 +176,7 @@ export const processSessionInBackground = async ({
   const normalizedUsageMeta = normalizeUsageMeta(usageMeta)
   const usageLimits = getLimitsForIdentity(normalizedUsageMeta)
   let activePhase = 'initializing'
+  let activePhaseStatusMessage = 'Preparing search...'
   let phaseStartedAt = Date.now()
   let phaseHeartbeat
   let structuredProfile = null
@@ -223,11 +225,18 @@ export const processSessionInBackground = async ({
     throw abortError
   }
 
+  const publishStatus = (statusMessage) => {
+    const normalizedStatus = String(statusMessage || '').trim()
+    if (!normalizedStatus) return
+    activePhaseStatusMessage = normalizedStatus
+    emitSessionStatus(sessionId, normalizedStatus)
+  }
+
   const setPhase = (phase, statusMessage) => {
     throwIfAborted()
     activePhase = phase
     phaseStartedAt = Date.now()
-    emitSessionStatus(sessionId, statusMessage)
+    publishStatus(statusMessage)
     debugLog(sessionId, `phase -> ${phase}`, { statusMessage })
   }
 
@@ -277,7 +286,7 @@ export const processSessionInBackground = async ({
       const totalSeconds = Math.round((Date.now() - startedAt) / 1000)
       emitSessionStatus(
         sessionId,
-        `Still working on ${activePhase} (${elapsedSeconds}s in phase, ${totalSeconds}s total)...`,
+        `Still working on ${activePhase}: ${activePhaseStatusMessage} (${elapsedSeconds}s in phase, ${totalSeconds}s total)...`,
       )
       debugLog(sessionId, 'heartbeat', {
         activePhase,
@@ -310,11 +319,15 @@ export const processSessionInBackground = async ({
           abortSignal,
           maxTargetsToScan: INITIAL_SOURCE_CAP,
           stopAfterJobs: INITIAL_SCRAPE_GOAL,
-          perSourceCap: 5,
-          finalDiversifiedLimit: 20,
-          onStatus: (statusMessage) => {
-            emitSessionStatus(sessionId, statusMessage)
-          },
+          perSourceCap: 4,
+          finalDiversifiedLimit: 18,
+          maxParallelPages: 4,
+          maxSourceRetries: 0,
+          maxAutoRounds: 1,
+          targetTimeoutMs: 10000,
+          dynamicTargetTimeoutMs: 7000,
+          useDynamicTargets: true,
+          onStatus: publishStatus,
           onTargetJobs: appendStreamedJobs,
         }),
     )
@@ -340,8 +353,9 @@ export const processSessionInBackground = async ({
       aiFilteringReasoning: String(matched.aiFilteringReasoning || '').slice(0, 220),
     })
     const needsDeeperSearch =
-      matched.filteredJobs.length < 6 ||
-      strongMatchStats.strongCount < strongMatchStats.minStrongRequired
+      matched.filteredJobs.length < 4 ||
+      (matched.filteredJobs.length < MIN_JOB_RESULTS_TARGET &&
+        strongMatchStats.strongCount < strongMatchStats.minStrongRequired)
 
     if (needsDeeperSearch) {
       const deeperScrapedJobs = await runPhase(
@@ -352,11 +366,15 @@ export const processSessionInBackground = async ({
             abortSignal,
             maxTargetsToScan: DEEP_SOURCE_CAP,
             stopAfterJobs: DEEP_SCRAPE_GOAL,
-            perSourceCap: 6,
-            finalDiversifiedLimit: 34,
-            onStatus: (statusMessage) => {
-              emitSessionStatus(sessionId, statusMessage)
-            },
+            perSourceCap: 5,
+            finalDiversifiedLimit: 24,
+            maxParallelPages: 4,
+            maxSourceRetries: 0,
+            maxAutoRounds: 1,
+            targetTimeoutMs: 11000,
+            dynamicTargetTimeoutMs: 9000,
+            useDynamicTargets: false,
+            onStatus: publishStatus,
             onTargetJobs: appendStreamedJobs,
           }),
       )
@@ -390,13 +408,17 @@ export const processSessionInBackground = async ({
         () =>
           scrapeJobsWithPlaywright(structuredProfile, {
             abortSignal,
-            maxTargetsToScan: Math.min(30, DEEP_SOURCE_CAP + 4),
-            stopAfterJobs: Math.max(DEEP_SCRAPE_GOAL, 42),
-            perSourceCap: 7,
-            finalDiversifiedLimit: 42,
-            onStatus: (statusMessage) => {
-              emitSessionStatus(sessionId, statusMessage)
-            },
+            maxTargetsToScan: Math.min(20, DEEP_SOURCE_CAP + 4),
+            stopAfterJobs: Math.max(DEEP_SCRAPE_GOAL, 28),
+            perSourceCap: 5,
+            finalDiversifiedLimit: 30,
+            maxParallelPages: 4,
+            maxSourceRetries: 0,
+            maxAutoRounds: 1,
+            targetTimeoutMs: 10000,
+            dynamicTargetTimeoutMs: 7000,
+            useDynamicTargets: false,
+            onStatus: publishStatus,
             onTargetJobs: appendStreamedJobs,
           }),
       )
@@ -426,11 +448,14 @@ export const processSessionInBackground = async ({
       ...job,
       scrapedAt: new Date(),
     }))
+    const scoredPoolForTopUp = mergeUniqueJobs(matched.scoredJobs, streamedJobs, 120)
     const filteredJobs = topUpJobsToMinimum({
       primaryJobs: primaryFilteredJobs,
-      scoredJobs: matched.scoredJobs,
-      minimumCount: MIN_JOB_RESULTS_TARGET,
+      scoredJobs: scoredPoolForTopUp,
+      minimumCount: FINAL_JOB_RESULTS_TARGET,
     })
+      .sort((left, right) => Number(right?.matchScore || 0) - Number(left?.matchScore || 0))
+      .slice(0, FINAL_JOB_RESULTS_TARGET)
     const mergedJobs = mergeUniqueJobs(streamedJobs, filteredJobs, 60)
 
     setPhase('final-streaming', 'Finalizing top matches...')
@@ -499,10 +524,7 @@ export const processSessionInBackground = async ({
     debugLog(sessionId, 'session processing completed', {
       totalElapsedMs: Date.now() - startedAt,
     })
-    emitSessionStatus(
-      sessionId,
-      `Search complete in ${Math.round((Date.now() - startedAt) / 1000)}s.`,
-    )
+    publishStatus(`Search complete in ${Math.round((Date.now() - startedAt) / 1000)}s.`)
     emitSessionComplete(sessionId, finalSummary)
   } catch (error) {
     if (phaseHeartbeat) {
@@ -552,7 +574,7 @@ export const processSessionInBackground = async ({
         debugLog(sessionId, 'token usage updated for stopped session', usageSnapshot)
       }
 
-      emitSessionStatus(sessionId, 'Search stopped by user.')
+      publishStatus('Search stopped by user.')
       emitFinalJobsSnapshot(sessionId, partialSet.filteredJobs || [])
       emitSessionComplete(sessionId, stoppedSummary)
       return
@@ -586,7 +608,7 @@ export const processSessionInBackground = async ({
       },
     })
 
-    emitSessionStatus(sessionId, `Search failed during ${activePhase}: ${errorMessage}`)
+    publishStatus(`Search failed during ${activePhase}: ${errorMessage}`)
     emitSessionFailure(sessionId, errorMessage)
   } finally {
     clearSessionAbortSignal(sessionId)
