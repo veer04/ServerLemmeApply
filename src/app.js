@@ -20,7 +20,7 @@ const resolveRequestOrigin = (origin) => {
     return ''
   }
 }
-
+{/*
 app.use(
   cors({
     origin: (origin, callback) => {
@@ -33,6 +33,42 @@ app.use(
     },
   }),
 )
+*/}
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true)
+
+      const normalizedOrigin = resolveRequestOrigin(origin)
+
+      if (normalizedOrigin && allowedOrigins.has(normalizedOrigin)) {
+        return callback(null, true)
+      }
+
+      console.log(" Blocked by CORS:", origin)
+      return callback(new Error("Not allowed by CORS"))
+    },
+    credentials: true,
+  })
+)
+
+// ✅ handle preflight requests
+app.options(/.*/, (req, res, next) => {
+  cors({
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true)
+
+      const normalizedOrigin = resolveRequestOrigin(origin)
+
+      if (normalizedOrigin && allowedOrigins.has(normalizedOrigin)) {
+        return callback(null, true)
+      }
+
+      return callback(new Error("Not allowed by CORS"))
+    },
+    credentials: true,
+  })(req, res, next)
+})
 
 app.use(express.json({ limit: '2mb' }))
 app.use(express.urlencoded({ extended: true }))
