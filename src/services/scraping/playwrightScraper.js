@@ -1186,6 +1186,10 @@ export const scrapeJobsWithPlaywright = async (profile, options = {}) => {
   const maxSourceRetries = Math.max(0, Math.min(2, Number(options.maxSourceRetries ?? 1)))
   const finalDiversifiedLimit = Math.max(10, Math.min(60, Number(options.finalDiversifiedLimit || 24)))
   const scrapeRound = Math.max(1, Number(options.scrapeRound || 1))
+  const dynamicTargetTimeoutMs = Math.max(
+    3000,
+    Math.min(40000, Number(options.dynamicTargetTimeoutMs || 40000)),
+  )
   const maxAutoRounds = Math.max(
     scrapeRound,
     Math.min(3, Number(options.maxAutoRounds || 2)),
@@ -1209,7 +1213,7 @@ export const scrapeJobsWithPlaywright = async (profile, options = {}) => {
           fallbackCount: fallbackTargets.length,
         })
         resolve(fallbackTargets)
-      }, 40000)
+      }, dynamicTargetTimeoutMs)
     }),
   ])
   const targets = dedupeUrls(resolvedTargets).slice(0, maxTargetsToScan)
@@ -1356,6 +1360,7 @@ export const scrapeJobsWithPlaywright = async (profile, options = {}) => {
       perSourceCap,
       maxParallelPages,
       maxSourceRetries,
+      dynamicTargetTimeoutMs,
       hasCustomExecutablePath: Boolean(configuredExecutablePath),
     })
 
