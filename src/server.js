@@ -16,7 +16,7 @@ const startServer = async () => {
   const redisStatus = await initRedisRealtime()
   const workerStatus = await startSessionQueueWorker()
 
-  app.listen(env.port, () => {
+  app.listen(env.port, "0.0.0.0",() => {
     // eslint-disable-next-line no-console
     console.log(`LemmeApply API running on http://localhost:${env.port}`)
     // eslint-disable-next-line no-console

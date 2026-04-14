@@ -1068,7 +1068,7 @@ Context:
 - Top jobs: ${JSON.stringify(topJobs.slice(0, 5))}
 
 Constraints:
-- Max 120 words
+- Max 120 words (But can be more if necessary)
 - Tone: professional and helpful
 - Mention 3 strongest role fits
 - Do not use markdown symbols like *, **, or headings

@@ -1,6 +1,5 @@
 import dotenv from 'dotenv'
 import fs from 'node:fs'
-
 dotenv.config()
 
 const inferProjectIdFromCredentials = () => {
