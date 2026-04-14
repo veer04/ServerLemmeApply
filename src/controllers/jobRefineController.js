@@ -57,6 +57,8 @@ const mergeJobs = (existingJobs, incomingJobs, limit = 60) => {
 }
 
 const MIN_JOB_RESULTS_TARGET = 5
+const REFINE_PRIMARY_SCRAPE_TIMEOUT_MS = 34000
+const REFINE_RECOVERY_SCRAPE_TIMEOUT_MS = 18000
 
 const topUpJobsToMinimum = ({ primaryJobs = [], scoredJobs = [], minimumCount = 5 }) => {
   const seedJobs = Array.isArray(primaryJobs) ? primaryJobs : []
@@ -129,6 +131,23 @@ const getStrongMatchStats = (jobs) => {
 const parseExperienceYearsFromText = (value) => {
   const matched = String(value || '').match(/(\d+)/)
   return matched ? Number(matched[1]) : 0
+}
+
+const scrapeWithTimeout = async ({ profile, options, timeoutMs }) => {
+  let timeoutId
+  const timeoutPromise = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => {
+      const timeoutError = new Error('Refinement scrape timed out.')
+      timeoutError.name = 'RefineScrapeTimeoutError'
+      reject(timeoutError)
+    }, timeoutMs)
+  })
+
+  try {
+    return await Promise.race([scrapeJobsWithPlaywright(profile, options), timeoutPromise])
+  } finally {
+    clearTimeout(timeoutId)
+  }
 }
 
 const mergeProfileWithContextData = (profile, contextProfile) => {
@@ -290,12 +309,26 @@ export const refineJobs = async (request, response, next) => {
       matched.filteredJobs.length < 5 ||
       strongMatchStats.strongCount < strongMatchStats.minStrongRequired
     if (shouldLoadMore || weakRelevance) {
-      const freshlyScraped = await scrapeJobsWithPlaywright(refinedProfile, {
-        maxTargetsToScan: shouldLoadMore ? 20 : 14,
-        stopAfterJobs: shouldLoadMore ? 30 : 20,
-        perSourceCap: shouldLoadMore ? 6 : 5,
-        finalDiversifiedLimit: shouldLoadMore ? 34 : 22,
-      })
+      let freshlyScraped = []
+      try {
+        freshlyScraped = await scrapeWithTimeout({
+          profile: refinedProfile,
+          timeoutMs: REFINE_PRIMARY_SCRAPE_TIMEOUT_MS,
+          options: {
+            maxTargetsToScan: shouldLoadMore ? 18 : 12,
+            stopAfterJobs: shouldLoadMore ? 26 : 16,
+            perSourceCap: shouldLoadMore ? 5 : 4,
+            finalDiversifiedLimit: shouldLoadMore ? 30 : 20,
+            maxParallelPages: 4,
+            maxSourceRetries: 1,
+            maxAutoRounds: 1,
+            targetTimeoutMs: shouldLoadMore ? 10000 : 8500,
+            dynamicTargetTimeoutMs: 7000,
+          },
+        })
+      } catch (error) {
+        if (error?.name !== 'RefineScrapeTimeoutError') throw error
+      }
       combinedRawJobs = [...cachedJobs, ...freshlyScraped]
       matched = await buildMatchedJobs({
         rawJobs: combinedRawJobs,
@@ -305,12 +338,26 @@ export const refineJobs = async (request, response, next) => {
     }
 
     if (!shouldLoadMore && matched.filteredJobs.length < MIN_JOB_RESULTS_TARGET) {
-      const recoveryScraped = await scrapeJobsWithPlaywright(refinedProfile, {
-        maxTargetsToScan: 24,
-        stopAfterJobs: 40,
-        perSourceCap: 7,
-        finalDiversifiedLimit: 40,
-      })
+      let recoveryScraped = []
+      try {
+        recoveryScraped = await scrapeWithTimeout({
+          profile: refinedProfile,
+          timeoutMs: REFINE_RECOVERY_SCRAPE_TIMEOUT_MS,
+          options: {
+            maxTargetsToScan: 12,
+            stopAfterJobs: 18,
+            perSourceCap: 3,
+            finalDiversifiedLimit: 18,
+            maxParallelPages: 4,
+            maxSourceRetries: 0,
+            maxAutoRounds: 1,
+            targetTimeoutMs: 7500,
+            dynamicTargetTimeoutMs: 5000,
+          },
+        })
+      } catch (error) {
+        if (error?.name !== 'RefineScrapeTimeoutError') throw error
+      }
       combinedRawJobs = [...combinedRawJobs, ...recoveryScraped]
       matched = await buildMatchedJobs({
         rawJobs: combinedRawJobs,
@@ -321,7 +368,7 @@ export const refineJobs = async (request, response, next) => {
 
     const finalJobsSeed = matched.filteredJobs.map((job) => ({
       ...job,
-      scrapedAt: new Date(),
+      scrapedAt: new Date(), 
     }))
     const finalJobs = topUpJobsToMinimum({
       primaryJobs: finalJobsSeed,

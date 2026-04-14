@@ -180,6 +180,34 @@ const isMeaningfulMatchedJob = (job) => {
   return Number(job?.matchScore || 0) >= 20
 }
 
+const isFallbackMatchedJob = (job) => {
+  const title = String(job?.title || '').trim()
+  const source = String(job?.source || '')
+  const applyLink = String(job?.applyLink || '')
+  const description = String(job?.description || '')
+  const combined = `${title} ${description}`.toLowerCase()
+
+  if (!title) return false
+  if (/[^\x00-\x7F]/.test(title)) return false
+  if (
+    /help (center|centre)|article du centre|hilfe|centro de ayuda|skip to main content|sign in|join now|studentsstudents|jobsjobs|homehome/i.test(
+      combined,
+    )
+  ) {
+    return false
+  }
+  if (
+    /linkedin\.com\/jobs\/search/i.test(applyLink) ||
+    /glassdoor\..*\/Job\/.*SRCH_/i.test(applyLink) ||
+    /careers\.google\.com\/jobs\/results\/?\?/i.test(applyLink)
+  ) {
+    return false
+  }
+
+  if (!source || !applyLink) return false
+  return Number(job?.matchScore || 0) >= 12
+}
+
 export const buildMatchedJobs = async ({ rawJobs, profile }) => {
   const normalizedJobs = normalizeScrapedJobs(rawJobs)
   const preFiltered = preFilterJobsForScoring(normalizedJobs)
@@ -207,7 +235,12 @@ export const buildMatchedJobs = async ({ rawJobs, profile }) => {
     jobs: relevantCandidates,
   })
 
-  const filteredJobs = dedupeJobs(reranked).filter(isMeaningfulMatchedJob).slice(0, 12)
+  const strictFilteredJobs = dedupeJobs(reranked).filter(isMeaningfulMatchedJob).slice(0, 12)
+  const fallbackFilteredJobs =
+    strictFilteredJobs.length > 0
+      ? strictFilteredJobs
+      : dedupeJobs(reranked).filter(isFallbackMatchedJob).slice(0, 8)
+  const filteredJobs = fallbackFilteredJobs
   debugLog('post-ai pipeline summary', {
     scoredJobs: scoredJobs.length,
     shortlistLimit,
