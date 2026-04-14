@@ -1186,6 +1186,7 @@ export const scrapeJobsWithPlaywright = async (profile, options = {}) => {
   const maxSourceRetries = Math.max(0, Math.min(2, Number(options.maxSourceRetries ?? 1)))
   const finalDiversifiedLimit = Math.max(10, Math.min(60, Number(options.finalDiversifiedLimit || 24)))
   const scrapeRound = Math.max(1, Number(options.scrapeRound || 1))
+  const useDynamicTargets = options.useDynamicTargets !== false
   const dynamicTargetTimeoutMs = Math.max(
     3000,
     Math.min(40000, Number(options.dynamicTargetTimeoutMs || 40000)),
@@ -1204,19 +1205,27 @@ export const scrapeJobsWithPlaywright = async (profile, options = {}) => {
 
   throwIfAborted()
 
-  const resolvedTargets = await Promise.race([
-    getDynamicTargets(profile, { maxTargets: maxTargetsToScan }),
-    new Promise((resolve) => {
-      setTimeout(() => {
-        const fallbackTargets = resolveTargetsForProfile(profile).slice(0, maxTargetsToScan)
-        debugLog('dynamic target generation timeout fallback', {
-          fallbackCount: fallbackTargets.length,
-        })
-        resolve(fallbackTargets)
-      }, dynamicTargetTimeoutMs)
-    }),
-  ])
+  const resolvedTargets = useDynamicTargets
+    ? await Promise.race([
+        getDynamicTargets(profile, { maxTargets: maxTargetsToScan }),
+        new Promise((resolve) => {
+          setTimeout(() => {
+            const fallbackTargets = resolveTargetsForProfile(profile).slice(0, maxTargetsToScan)
+            debugLog('dynamic target generation timeout fallback', {
+              fallbackCount: fallbackTargets.length,
+            })
+            resolve(fallbackTargets)
+          }, dynamicTargetTimeoutMs)
+        }),
+      ])
+    : resolveTargetsForProfile(profile).slice(0, maxTargetsToScan)
   const targets = dedupeUrls(resolvedTargets).slice(0, maxTargetsToScan)
+  if (!useDynamicTargets) {
+    debugLog('dynamic target discovery skipped', {
+      selectedCount: targets.length,
+      maxTargetsToScan,
+    })
+  }
   const targetTimeoutMs = Math.max(
     10000,
     Math.min(25000, Number(options.targetTimeoutMs || (targets.length > 20 ? 11000 : 14000))),
