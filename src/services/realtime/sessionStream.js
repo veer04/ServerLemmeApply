@@ -123,6 +123,20 @@ export const initSessionStream = (sessionId) => {
   return ensureStreamState(sessionId)
 }
 
+export const resetSessionStream = (sessionId, statusMessage = '') => {
+  ensureRedisBridge()
+  const key = normalizeSessionId(sessionId)
+  const streamState = ensureStreamState(key)
+  streamState.jobs = []
+  streamState.finalJobs = []
+  streamState.status = 'processing'
+  streamState.summary = ''
+  streamState.errorMessage = ''
+  streamState.statusMessage = String(statusMessage || '').trim()
+  streamState.updatedAt = Date.now()
+  void persistSnapshot(key, streamState)
+}
+
 export const emitJobUpdate = (sessionId, job) => {
   ensureRedisBridge()
   applyEvent(sessionId, 'job', job)
