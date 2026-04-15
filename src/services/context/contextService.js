@@ -22,14 +22,23 @@ const parseExperienceYears = (value) => {
 const toIdentityKey = (identity) => {
   const userId = cleanText(identity?.userId)
   if (userId) return `user:${userId}`
+
+  const sessionId = cleanText(identity?.sessionId)
+  if (sessionId) return `session:${sessionId}`
+
+  const guestId = cleanText(identity?.guestId)
+  if (guestId) return `guest:${guestId}`
+
   const ipAddress = cleanText(identity?.ipAddress)
   if (ipAddress) return `ip:${ipAddress}`
-  return 'ip:unknown'
+  return 'guest:unknown'
 }
 
 const createDefaultContext = (identity) => ({
   identityKey: toIdentityKey(identity),
   userId: cleanText(identity?.userId),
+  guestId: cleanText(identity?.guestId),
+  sessionId: cleanText(identity?.sessionId),
   ipAddress: cleanText(identity?.ipAddress),
   lastIntent: 'UNKNOWN',
   lastSearchQuery: '',
@@ -79,6 +88,8 @@ export const getUserContext = (identity) => {
   const existing = contextStore.get(key)
   if (existing) {
     existing.userId = cleanText(identity?.userId) || existing.userId
+    existing.guestId = cleanText(identity?.guestId) || existing.guestId
+    existing.sessionId = cleanText(identity?.sessionId) || existing.sessionId
     existing.ipAddress = cleanText(identity?.ipAddress) || existing.ipAddress
     existing.updatedAt = Date.now()
     return existing

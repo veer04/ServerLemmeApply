@@ -1234,6 +1234,7 @@ export const scrapeJobsWithPlaywright = async (profile, options = {}) => {
   const jobsPerHost = new Map()
   const sourceOutcomes = new Map()
   let browser
+  let browserContext
   let telemetryPersisted = false
 
   const ensureSourceOutcome = (sourceUrl, sourceHost = '') => {
@@ -1373,6 +1374,8 @@ export const scrapeJobsWithPlaywright = async (profile, options = {}) => {
       hasCustomExecutablePath: Boolean(configuredExecutablePath),
     })
 
+    browserContext = await browser.newContext()
+
     let queueCursor = 0
     let shouldStop = false
 
@@ -1405,7 +1408,7 @@ export const scrapeJobsWithPlaywright = async (profile, options = {}) => {
         let page = null
 
         try {
-          page = await browser.newPage()
+          page = await browserContext.newPage()
           await page.goto(targetUrl, {
             waitUntil: 'domcontentloaded',
             timeout: targetTimeoutMs,
@@ -1525,6 +1528,9 @@ export const scrapeJobsWithPlaywright = async (profile, options = {}) => {
       `Browser launch failed while scraping sources. ${launchErrorMessage}`,
     )
   } finally {
+    if (browserContext) {
+      await browserContext.close()
+    }
     if (browser) {
       await browser.close()
       debugLog('browser closed', {
