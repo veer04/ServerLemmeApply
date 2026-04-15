@@ -184,6 +184,13 @@ const mergeProfileWithContextData = (profile, contextProfile) => {
   }
 }
 
+const debugRequest = (label, payload = {}) => {
+  // Keep logs lightweight and only when debug mode is enabled.
+  if (process.env.JOB_DEBUG_ENABLED !== 'true') return
+  // eslint-disable-next-line no-console
+  console.log(`[job-refine] ${label}`, payload)
+}
+
 const processRefinementInBackground = async ({
   sessionId,
   instruction,
@@ -425,6 +432,13 @@ export const refineJobs = async (request, response, next) => {
     const usageIdentity = normalizeUsageMeta({
       ...(request.usageContext || resolveUsageIdentityFromRequest(request)),
       inputText: instruction,
+      sessionId,
+    })
+    debugRequest('refine request', {
+      sessionId,
+      userId: usageIdentity?.userId || null,
+      guestId: usageIdentity?.guestId || null,
+      query: instruction.slice(0, 180),
     })
     const userContext = getUserContext(usageIdentity)
     const routeResult = await handleUserMessage(instruction, userContext)

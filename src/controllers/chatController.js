@@ -159,6 +159,12 @@ const buildRoutingProfileSeed = (routingProfile) => {
   }
 }
 
+const debugRequest = (label, payload = {}) => {
+  if (!env.jobDebugEnabled) return
+  // eslint-disable-next-line no-console
+  console.log(`[chat-controller] ${label}`, payload)
+}
+
 export const createChatSession = async (request, response, next) => {
   try {
     const prompt = String(request.body.prompt || '').trim()
@@ -174,6 +180,17 @@ export const createChatSession = async (request, response, next) => {
       : ''
 
     const usageIdentity = resolveUsageIdentityFromRequest(request)
+    const sessionObjectId = new mongoose.Types.ObjectId()
+    const scopedIdentity = {
+      ...usageIdentity,
+      sessionId: sessionObjectId.toString(),
+    }
+    debugRequest('create session request', {
+      sessionId: scopedIdentity.sessionId,
+      userId: scopedIdentity.userId || null,
+      guestId: scopedIdentity.guestId || null,
+      query: prompt.slice(0, 180),
+    })
     const usageLimits = request.usageContext?.limits || getLimitsForIdentity(usageIdentity)
     const tokenUsageSnapshot = buildTokenUsagePayload({
       usage: request.usage,
@@ -185,20 +202,20 @@ export const createChatSession = async (request, response, next) => {
     const profileSeed = buildProfileSeed(storedProfile)
 
     const resumeText = await extractResumeText(request.file)
-    const userContext = getUserContext(usageIdentity)
+    const userContext = getUserContext(scopedIdentity)
     const routeResult = await handleUserMessage(prompt, userContext)
     const responseType = String(routeResult?.type || 'JOB_RESULT').trim().toUpperCase()
     const suggestions = Array.isArray(routeResult?.suggestions) ? routeResult.suggestions.slice(0, 5) : []
     const routingProfileSeed = buildRoutingProfileSeed(routeResult?.mergedProfile)
     const searchPrompt = String(routeResult?.searchPrompt || prompt).trim() || prompt
 
-    updateUserContext(usageIdentity, {
+    updateUserContext(scopedIdentity, {
       lastIntent: routeResult?.intent || 'UNKNOWN',
       extractedProfile: routingProfileSeed,
       lastSearchQuery: routeResult?.shouldScrape ? searchPrompt : userContext?.lastSearchQuery || '',
       pendingAction: routeResult?.pendingAction || '',
     })
-    recordConversationTurn(usageIdentity, { role: 'user', content: prompt })
+    recordConversationTurn(scopedIdentity, { role: 'user', content: prompt })
 
     const attachments = request.file
       ? [
@@ -217,6 +234,7 @@ export const createChatSession = async (request, response, next) => {
 
     if (!routeResult?.shouldScrape) {
       const chatSession = await ChatSession.create({
+        _id: sessionObjectId,
         userId,
         prompt,
         resumeText,
@@ -236,7 +254,7 @@ export const createChatSession = async (request, response, next) => {
       initSessionStream(chatSessionId)
       emitSessionStatus(chatSessionId, 'Chat response ready.')
       emitSessionComplete(chatSessionId, assistantMessage)
-      recordConversationTurn(usageIdentity, {
+      recordConversationTurn(scopedIdentity, {
         role: 'assistant',
         content: assistantMessage,
       })
@@ -295,6 +313,7 @@ export const createChatSession = async (request, response, next) => {
     ]
 
     const session = await ChatSession.create({
+      _id: sessionObjectId,
       userId,
       prompt,
       resumeText,
@@ -313,12 +332,12 @@ export const createChatSession = async (request, response, next) => {
       resumeText,
       profileSeed: combinedProfileSeed,
       usageMeta: {
-        ...usageIdentity,
+        ...scopedIdentity,
         inputText: prompt,
       },
     })
 
-    recordConversationTurn(usageIdentity, {
+    recordConversationTurn(scopedIdentity, {
       role: 'assistant',
       content: assistantMessage,
     })

@@ -232,7 +232,8 @@ const normalizePhrase = (value) => cleanText(value).toLowerCase()
 
 const uniq = (list) => [...new Set((Array.isArray(list) ? list : []).filter(Boolean))]
 
-const buildCacheKey = (message) => normalizePhrase(message).slice(0, 280)
+const buildCacheKey = (message, scopeKey = 'global') =>
+  `${normalizePhrase(scopeKey).slice(0, 120)}|${normalizePhrase(message).slice(0, 280)}`
 
 const getCachedIntent = (cacheKey) => {
   const cached = intentCache.get(cacheKey)
@@ -584,7 +585,7 @@ const mergeExtractedData = (baseData, nextData) => {
 
 export const detectUserIntent = async (message, options = {}) => {
   const normalizedMessage = cleanText(message)
-  const cacheKey = buildCacheKey(normalizedMessage)
+  const cacheKey = buildCacheKey(normalizedMessage, options.scopeKey || 'global')
   const cached = getCachedIntent(cacheKey)
   if (cached) return cached
 

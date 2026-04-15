@@ -25,11 +25,17 @@ export const resolveUsageIdentityFromRequest = (request) => {
     isGuest && normalizeObjectId(request?.user?.userId)
       ? normalizeObjectId(request?.user?.userId)
       : null
+  const candidateSessionId =
+    normalizeObjectId(request?.headers?.['x-session-id']) ||
+    normalizeObjectId(request?.query?.sessionId) ||
+    normalizeObjectId(request?.body?.sessionId) ||
+    null
 
   return {
     isGuest,
     userId: isGuest ? null : candidateUserId,
     guestId: candidateGuestId,
+    sessionId: candidateSessionId,
     ipAddress: extractIpAddress(request),
   }
 }
@@ -44,6 +50,7 @@ export const normalizeUsageMeta = (value) => {
     isGuest,
     userId: isGuest ? null : normalizedUserId,
     guestId: isGuest ? normalizedGuestId : null,
+    sessionId: normalizeObjectId(payload.sessionId),
     ipAddress: String(payload.ipAddress || '').trim() || 'unknown',
     inputText: String(payload.inputText || '').trim(),
   }

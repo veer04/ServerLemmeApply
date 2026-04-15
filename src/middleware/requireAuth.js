@@ -20,8 +20,12 @@ const resolveToken = (request) => {
 const resolveGuestId = (request) => {
   const headerGuestId = String(request.headers['x-guest-id'] || '').trim()
   if (headerGuestId) return headerGuestId
+  const headerSessionId = String(request.headers['x-session-id'] || '').trim()
+  if (headerSessionId) return headerSessionId
   const queryGuestId = String(request.query?.guestId || '').trim()
   if (queryGuestId) return queryGuestId
+  const querySessionId = String(request.query?.sessionId || '').trim()
+  if (querySessionId) return querySessionId
   return ''
 }
 

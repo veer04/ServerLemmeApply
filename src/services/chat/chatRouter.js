@@ -49,8 +49,9 @@ const vertexClient = env.vertexProject
 const CAREER_REPLY_CACHE_TTL_MS = 1000 * 60 * 30
 const careerReplyCache = new Map()
 
-const buildCareerReplyCacheKey = (message, profile) =>
+const buildCareerReplyCacheKey = (message, profile, scopeKey = 'global') =>
   [
+    cleanText(scopeKey).toLowerCase(),
     cleanText(message).toLowerCase(),
     cleanText(profile?.role).toLowerCase(),
     uniqueList(profile?.skills || [])
@@ -204,8 +205,8 @@ const generateFallbackCareerAdvice = (message, searchProfile) => {
   ].join('\n\n')
 }
 
-const generateCareerAdvice = async (message, searchProfile) => {
-  const cacheKey = buildCareerReplyCacheKey(message, searchProfile)
+const generateCareerAdvice = async (message, searchProfile, scopeKey = 'global') => {
+  const cacheKey = buildCareerReplyCacheKey(message, searchProfile, scopeKey)
   const cached = getCachedCareerReply(cacheKey)
   if (cached) return cached
 
@@ -303,7 +304,11 @@ const resolveIntentWithContext = (message, userContext, intentResult) => {
 
 export const handleUserMessage = async (message, userContext = {}) => {
   const normalizedMessage = cleanText(message)
-  const intentDetection = await detectUserIntent(normalizedMessage, { enableAi: true })
+  const contextScopeKey = cleanText(userContext?.identityKey || 'global')
+  const intentDetection = await detectUserIntent(normalizedMessage, {
+    enableAi: true,
+    scopeKey: contextScopeKey,
+  })
   const intentResult = resolveIntentWithContext(normalizedMessage, userContext, intentDetection)
   const pendingAction = cleanText(userContext?.pendingAction).toUpperCase()
   const searchProfile = buildSearchProfile(userContext.extractedProfile, intentResult.extractedData)
@@ -389,7 +394,7 @@ export const handleUserMessage = async (message, userContext = {}) => {
   }
 
   if (intentResult.intent === INTENTS.CAREER_QUERY && !scrapingAllowed) {
-    const advice = await generateCareerAdvice(normalizedMessage, searchProfile)
+    const advice = await generateCareerAdvice(normalizedMessage, searchProfile, contextScopeKey)
     return {
       type: 'CHAT',
       message: advice,
