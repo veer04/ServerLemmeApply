@@ -21,10 +21,15 @@ export const resolveUsageIdentityFromRequest = (request) => {
   const candidateUserId = normalizeObjectId(request?.user?.userId)
   const explicitlyGuest = Boolean(request?.user?.isGuest)
   const isGuest = explicitlyGuest || !candidateUserId
+  const candidateGuestId =
+    isGuest && normalizeObjectId(request?.user?.userId)
+      ? normalizeObjectId(request?.user?.userId)
+      : null
 
   return {
     isGuest,
     userId: isGuest ? null : candidateUserId,
+    guestId: candidateGuestId,
     ipAddress: extractIpAddress(request),
   }
 }
@@ -32,14 +37,22 @@ export const resolveUsageIdentityFromRequest = (request) => {
 export const normalizeUsageMeta = (value) => {
   const payload = value && typeof value === 'object' ? value : {}
   const normalizedUserId = normalizeObjectId(payload.userId)
+  const normalizedGuestId = normalizeObjectId(payload.guestId)
   const isGuest = Boolean(payload.isGuest) || !normalizedUserId
 
   return {
     isGuest,
     userId: isGuest ? null : normalizedUserId,
+    guestId: isGuest ? normalizedGuestId : null,
     ipAddress: String(payload.ipAddress || '').trim() || 'unknown',
     inputText: String(payload.inputText || '').trim(),
   }
+}
+
+const buildGuestUsageKey = (identity) => {
+  const guestId = normalizeObjectId(identity?.guestId)
+  if (guestId) return `guest:${guestId}`
+  return String(identity?.ipAddress || '').trim() || 'unknown'
 }
 
 export const getLimitsForIdentity = (identity) => {
@@ -63,7 +76,7 @@ const buildUsageQuery = (identity) => {
   if (identity?.isGuest) {
     return {
       userId: null,
-      ipAddress: String(identity?.ipAddress || '').trim() || 'unknown',
+      ipAddress: buildGuestUsageKey(identity),
     }
   }
   return {
@@ -82,7 +95,9 @@ const buildUsageWindowStage = ({ identity, now, nextHourlyReset, nextDailyReset 
   return {
     $set: {
       userId: identity?.isGuest ? null : new mongoose.Types.ObjectId(identity.userId),
-      ipAddress: String(identity?.ipAddress || '').trim() || 'unknown',
+      ipAddress: identity?.isGuest
+        ? buildGuestUsageKey(identity)
+        : String(identity?.ipAddress || '').trim() || 'unknown',
       hourlyTokensUsed: {
         $cond: [resetHourlyExpr, 0, { $ifNull: ['$hourlyTokensUsed', 0] }],
       },
