@@ -12,10 +12,16 @@ import {
 } from '../services/context/contextService.js'
 import { scrapeJobsWithPlaywright } from '../services/scraping/playwrightScraper.js'
 import { buildMatchedJobs } from '../services/session/matchPipeline.js'
+import {
+  emitFinalJobsSnapshot,
+  emitSessionComplete,
+  emitSessionFailure,
+  emitSessionStatus,
+  initSessionStream,
+  resetSessionStream,
+} from '../services/realtime/sessionStream.js'
 import { calculateTokensUsed } from '../services/token/tokenService.js'
 import {
-  buildTokenUsagePayload,
-  getLimitsForIdentity,
   incrementUsageTokensAtomic,
   normalizeUsageMeta,
   resolveUsageIdentityFromRequest,
@@ -178,6 +184,214 @@ const mergeProfileWithContextData = (profile, contextProfile) => {
   }
 }
 
+const processRefinementInBackground = async ({
+  sessionId,
+  instruction,
+  normalizedInstruction,
+  shouldLoadMore,
+  usageIdentity,
+  mergedContextProfile,
+}) => {
+  try {
+    const session = await ChatSession.findById(sessionId)
+    if (!session) {
+      emitSessionFailure(sessionId, 'Session no longer exists for refinement.')
+      return
+    }
+
+    emitSessionStatus(sessionId, 'Refining your request using previous chat context...')
+
+    const currentProfile = mergeProfileWithContextData(
+      session.structuredProfile || session.preferenceProfile || baseProfile,
+      mergedContextProfile,
+    )
+    const refinedProfile = await refineProfileWithInstruction({
+      currentProfile,
+      instruction: normalizedInstruction,
+    })
+
+    const cachedJobs = Array.isArray(session.lastScrapedJobs) ? session.lastScrapedJobs : []
+    const existingJobs = Array.isArray(session.jobs) ? session.jobs : []
+    let matched = await buildMatchedJobs({
+      rawJobs: cachedJobs,
+      profile: refinedProfile,
+    })
+
+    let rescraped = false
+    let combinedRawJobs = matched.normalizedJobs
+    const strongMatchStats = getStrongMatchStats(matched.filteredJobs)
+    const weakRelevance =
+      matched.filteredJobs.length < 5 ||
+      strongMatchStats.strongCount < strongMatchStats.minStrongRequired
+
+    if (shouldLoadMore || weakRelevance) {
+      emitSessionStatus(sessionId, 'Searching fresh sources for refined matches...')
+      let freshlyScraped = []
+      try {
+        freshlyScraped = await scrapeWithTimeout({
+          profile: refinedProfile,
+          timeoutMs: REFINE_PRIMARY_SCRAPE_TIMEOUT_MS,
+          options: {
+            maxTargetsToScan: shouldLoadMore ? 14 : 10,
+            stopAfterJobs: shouldLoadMore ? 20 : 14,
+            perSourceCap: shouldLoadMore ? 5 : 4,
+            finalDiversifiedLimit: shouldLoadMore ? 24 : 16,
+            maxParallelPages: 4,
+            maxSourceRetries: 0,
+            maxAutoRounds: 1,
+            targetTimeoutMs: shouldLoadMore ? 10000 : 8500,
+            dynamicTargetTimeoutMs: 7000,
+            useDynamicTargets: false,
+            onStatus: (statusMessage) => {
+              emitSessionStatus(sessionId, statusMessage)
+            },
+          },
+        })
+      } catch (error) {
+        if (error?.name !== 'RefineScrapeTimeoutError') throw error
+        emitSessionStatus(sessionId, 'Refinement source scan timed out. Using best available matches...')
+      }
+      combinedRawJobs = [...cachedJobs, ...freshlyScraped]
+      matched = await buildMatchedJobs({
+        rawJobs: combinedRawJobs,
+        profile: refinedProfile,
+      })
+      rescraped = true
+    }
+
+    if (!shouldLoadMore && matched.filteredJobs.length < MIN_JOB_RESULTS_TARGET) {
+      emitSessionStatus(sessionId, 'Low result confidence. Running one recovery pass...')
+      let recoveryScraped = []
+      try {
+        recoveryScraped = await scrapeWithTimeout({
+          profile: refinedProfile,
+          timeoutMs: REFINE_RECOVERY_SCRAPE_TIMEOUT_MS,
+          options: {
+            maxTargetsToScan: 12,
+            stopAfterJobs: 18,
+            perSourceCap: 3,
+            finalDiversifiedLimit: 18,
+            maxParallelPages: 4,
+            maxSourceRetries: 0,
+            maxAutoRounds: 1,
+            targetTimeoutMs: 7500,
+            dynamicTargetTimeoutMs: 5000,
+            useDynamicTargets: false,
+            onStatus: (statusMessage) => {
+              emitSessionStatus(sessionId, statusMessage)
+            },
+          },
+        })
+      } catch (error) {
+        if (error?.name !== 'RefineScrapeTimeoutError') throw error
+      }
+      combinedRawJobs = [...combinedRawJobs, ...recoveryScraped]
+      matched = await buildMatchedJobs({
+        rawJobs: combinedRawJobs,
+        profile: refinedProfile,
+      })
+      rescraped = true
+    }
+
+    const finalJobsSeed = matched.filteredJobs.map((job) => ({
+      ...job,
+      scrapedAt: new Date(),
+    }))
+    const finalJobs = topUpJobsToMinimum({
+      primaryJobs: finalJobsSeed,
+      scoredJobs: matched.scoredJobs,
+      minimumCount: shouldLoadMore ? 8 : REFINE_FINAL_JOB_TARGET,
+    })
+      .sort((left, right) => Number(right?.matchScore || 0) - Number(left?.matchScore || 0))
+      .slice(0, shouldLoadMore ? 8 : REFINE_FINAL_JOB_TARGET)
+
+    const existingKeys = new Set(existingJobs.map((job) => buildJobKey(job)))
+    const additionalJobs = matched.scoredJobs
+      .filter((job) => !existingKeys.has(buildJobKey(job)))
+      .slice(0, 10)
+      .map((job) => ({
+        ...job,
+        scrapedAt: new Date(),
+      }))
+
+    const mergedJobs = mergeJobs(existingJobs, shouldLoadMore ? additionalJobs : finalJobs)
+      .sort((left, right) => Number(right?.matchScore || 0) - Number(left?.matchScore || 0))
+
+    const jobsReturnedForUsage = shouldLoadMore ? additionalJobs : finalJobs
+    const tokenStats = calculateTokensUsed({
+      inputText: normalizedInstruction,
+      jobsReturned: jobsReturnedForUsage,
+      aiEnrichmentUsed: true,
+    })
+    const hasTrackableIdentity =
+      Boolean(usageIdentity?.userId) ||
+      (Boolean(usageIdentity?.isGuest) &&
+        Boolean(usageIdentity?.ipAddress) &&
+        usageIdentity.ipAddress !== 'unknown')
+
+    if (hasTrackableIdentity) {
+      try {
+        await incrementUsageTokensAtomic(usageIdentity, tokenStats.totalTokens)
+      } catch {
+        // Skip hard failure when usage counter update fails.
+      }
+    }
+
+    emitSessionStatus(sessionId, 'Generating refined summary...')
+    let assistantSummary = await generateAssistantSummary({
+      profile: refinedProfile,
+      topJobs: shouldLoadMore ? additionalJobs.slice(0, 5) : finalJobs,
+      userPrompt: normalizedInstruction,
+      isRefinement: true,
+    })
+    if (mergedJobs.length === 0 || getStrongMatchStats(mergedJobs).strongCount === 0) {
+      assistantSummary = `${assistantSummary}\n\nI could not find strongly relevant openings for this instruction yet. You can tweak the query, or ask me to hunt deeper by saying "move further".`
+    }
+
+    await ChatSession.findByIdAndUpdate(sessionId, {
+      $set: {
+        status: 'completed',
+        errorMessage: '',
+        structuredProfile: refinedProfile,
+        preferenceProfile: refinedProfile,
+        jobs: mergedJobs,
+        filteredJobs: mergedJobs,
+        lastScrapedJobs: combinedRawJobs.slice(0, 220),
+      },
+      $push: {
+        messages: {
+          $each: [{ role: 'assistant', content: assistantSummary, createdAt: new Date() }],
+        },
+        conversationHistory: {
+          $each: [{ role: 'assistant', content: assistantSummary, createdAt: new Date() }],
+        },
+      },
+    })
+
+    recordConversationTurn(usageIdentity, {
+      role: 'assistant',
+      content: assistantSummary,
+    })
+
+    emitFinalJobsSnapshot(sessionId, mergedJobs)
+    emitSessionStatus(
+      sessionId,
+      `Refinement complete${rescraped ? ' after fresh source scan' : ''}.`,
+    )
+    emitSessionComplete(sessionId, assistantSummary)
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : 'Refinement failed due to an unexpected error.'
+    await ChatSession.findByIdAndUpdate(sessionId, {
+      $set: {
+        status: 'failed',
+        errorMessage,
+      },
+    })
+    emitSessionFailure(sessionId, errorMessage)
+  }
+}
+
 export const refineJobs = async (request, response, next) => {
   try {
     const sessionId = String(request.body.sessionId || '').trim()
@@ -291,188 +505,47 @@ export const refineJobs = async (request, response, next) => {
     continuationRequested = continuationInstructionRegex.test(normalizedInstruction)
     shouldLoadMore = loadMore || continuationRequested
 
-    const currentProfile = mergeProfileWithContextData(
-      session.structuredProfile || session.preferenceProfile || baseProfile,
-      mergedContextProfile,
-    )
-    const refinedProfile = await refineProfileWithInstruction({
-      currentProfile,
-      instruction: normalizedInstruction,
-    })
-
-    const cachedJobs = Array.isArray(session.lastScrapedJobs) ? session.lastScrapedJobs : []
-    const existingJobs = Array.isArray(session.jobs) ? session.jobs : []
-    let matched = await buildMatchedJobs({
-      rawJobs: cachedJobs,
-      profile: refinedProfile,
-    })
-
-    let rescraped = false
-    let combinedRawJobs = matched.normalizedJobs
-    const strongMatchStats = getStrongMatchStats(matched.filteredJobs)
-    const weakRelevance =
-      matched.filteredJobs.length < 5 ||
-      strongMatchStats.strongCount < strongMatchStats.minStrongRequired
-    if (shouldLoadMore || weakRelevance) {
-      let freshlyScraped = []
-      try {
-        freshlyScraped = await scrapeWithTimeout({
-          profile: refinedProfile,
-          timeoutMs: REFINE_PRIMARY_SCRAPE_TIMEOUT_MS,
-          options: {
-            maxTargetsToScan: shouldLoadMore ? 14 : 10,
-            stopAfterJobs: shouldLoadMore ? 20 : 14,
-            perSourceCap: shouldLoadMore ? 5 : 4,
-            finalDiversifiedLimit: shouldLoadMore ? 24 : 16,
-            maxParallelPages: 4,
-            maxSourceRetries: 0,
-            maxAutoRounds: 1,
-            targetTimeoutMs: shouldLoadMore ? 10000 : 8500,
-            dynamicTargetTimeoutMs: 7000,
-            useDynamicTargets: false,
-          },
-        })
-      } catch (error) {
-        if (error?.name !== 'RefineScrapeTimeoutError') throw error
-      }
-      combinedRawJobs = [...cachedJobs, ...freshlyScraped]
-      matched = await buildMatchedJobs({
-        rawJobs: combinedRawJobs,
-        profile: refinedProfile,
-      })
-      rescraped = true
-    }
-
-    if (!shouldLoadMore && matched.filteredJobs.length < MIN_JOB_RESULTS_TARGET) {
-      let recoveryScraped = []
-      try {
-        recoveryScraped = await scrapeWithTimeout({
-          profile: refinedProfile,
-          timeoutMs: REFINE_RECOVERY_SCRAPE_TIMEOUT_MS,
-          options: {
-            maxTargetsToScan: 12,
-            stopAfterJobs: 18,
-            perSourceCap: 3,
-            finalDiversifiedLimit: 18,
-            maxParallelPages: 4,
-            maxSourceRetries: 0,
-            maxAutoRounds: 1,
-            targetTimeoutMs: 7500,
-            dynamicTargetTimeoutMs: 5000,
-            useDynamicTargets: false,
-          },
-        })
-      } catch (error) {
-        if (error?.name !== 'RefineScrapeTimeoutError') throw error
-      }
-      combinedRawJobs = [...combinedRawJobs, ...recoveryScraped]
-      matched = await buildMatchedJobs({
-        rawJobs: combinedRawJobs,
-        profile: refinedProfile,
-      })
-      rescraped = true
-    }
-
-    const finalJobsSeed = matched.filteredJobs.map((job) => ({
-      ...job,
-      scrapedAt: new Date(),
-    }))
-    const finalJobs = topUpJobsToMinimum({
-      primaryJobs: finalJobsSeed,
-      scoredJobs: matched.scoredJobs,
-      minimumCount: shouldLoadMore ? 8 : REFINE_FINAL_JOB_TARGET,
-    })
-      .sort((left, right) => Number(right?.matchScore || 0) - Number(left?.matchScore || 0))
-      .slice(0, shouldLoadMore ? 8 : REFINE_FINAL_JOB_TARGET)
-    const existingKeys = new Set(existingJobs.map((job) => buildJobKey(job)))
-    const additionalJobs = matched.scoredJobs
-      .filter((job) => !existingKeys.has(buildJobKey(job)))
-      .slice(0, 10)
-      .map((job) => ({
-        ...job,
-        scrapedAt: new Date(),
-      }))
-    const mergedJobs = mergeJobs(existingJobs, loadMore ? additionalJobs : finalJobs)
-
-    const usageLimits = request.usageContext?.limits || getLimitsForIdentity(usageIdentity)
-    const jobsReturnedForUsage = shouldLoadMore ? additionalJobs : finalJobs
-    const tokenStats = calculateTokensUsed({
-      inputText: normalizedInstruction,
-      jobsReturned: jobsReturnedForUsage,
-      aiEnrichmentUsed: true,
-    })
-    let tokenUsage = request.usageContext?.tokenUsage || null
-    const hasTrackableIdentity =
-      Boolean(usageIdentity?.userId) ||
-      (Boolean(usageIdentity?.isGuest) &&
-        Boolean(usageIdentity?.ipAddress) &&
-        usageIdentity.ipAddress !== 'unknown')
-    if (hasTrackableIdentity) {
-      try {
-        const updatedUsage = await incrementUsageTokensAtomic(usageIdentity, tokenStats.totalTokens)
-        tokenUsage = buildTokenUsagePayload({
-          usage: updatedUsage,
-          limits: usageLimits,
-        })
-      } catch {
-        tokenUsage = null
-      }
-    }
-
-    let assistantSummary = await generateAssistantSummary({
-      profile: refinedProfile,
-      topJobs: shouldLoadMore ? additionalJobs.slice(0, 5) : finalJobs,
-      userPrompt: normalizedInstruction,
-      isRefinement: true,
-    })
-    if (mergedJobs.length === 0 || getStrongMatchStats(mergedJobs).strongCount === 0) {
-      assistantSummary = `${assistantSummary}\n\nI could not find strongly relevant openings for this instruction yet. You can tweak the query, or ask me to hunt deeper by saying "move further".`
-    }
-
     await ChatSession.findByIdAndUpdate(sessionId, {
       $set: {
-        status: 'completed',
+        status: 'processing',
         errorMessage: '',
-        structuredProfile: refinedProfile,
-        preferenceProfile: refinedProfile,
-        jobs: mergedJobs,
-        filteredJobs: mergedJobs,
-        lastScrapedJobs: combinedRawJobs.slice(0, 220),
       },
       $push: {
         messages: {
-          $each: [
-            { role: 'user', content: instruction, createdAt: new Date() },
-            { role: 'assistant', content: assistantSummary, createdAt: new Date() },
-          ],
+          $each: [{ role: 'user', content: instruction, createdAt: new Date() }],
         },
         conversationHistory: {
-          $each: [
-            { role: 'user', content: instruction, createdAt: new Date() },
-            { role: 'assistant', content: assistantSummary, createdAt: new Date() },
-          ],
+          $each: [{ role: 'user', content: instruction, createdAt: new Date() }],
         },
       },
     })
 
-    recordConversationTurn(usageIdentity, {
-      role: 'assistant',
-      content: assistantSummary,
+    initSessionStream(sessionId)
+    resetSessionStream(sessionId, 'Starting refinement search...')
+    emitSessionStatus(
+      sessionId,
+      shouldLoadMore
+        ? 'Starting load-more search using your previous chat context...'
+        : 'Starting refinement using your previous chat context...',
+    )
+
+    void processRefinementInBackground({
+      sessionId,
+      instruction,
+      normalizedInstruction,
+      shouldLoadMore,
+      usageIdentity,
+      mergedContextProfile,
     })
 
     response.json({
       sessionId,
-      structuredProfile: refinedProfile,
-      jobs: mergedJobs,
-      assistantMessage: assistantSummary,
-      averageMatchScore: matched.averageMatchScore,
-      rescraped,
-      usedCachedJobs: cachedJobs.length > 0,
+      status: 'processing',
       loadMore: shouldLoadMore,
       continuationRequested,
       responseType: 'JOB_RESULT',
       suggestions: [],
-      tokenUsage,
+      processingMode: 'async-refine',
     })
   } catch (error) {
     next(error)
